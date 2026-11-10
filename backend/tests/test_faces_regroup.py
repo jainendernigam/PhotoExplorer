@@ -22,7 +22,9 @@ def test_regroups_during_and_after_stopped_run(tmp_path, monkeypatch):
     face = dict(ordinal=0, x=0, y=0, w=1, h=1, score=0.9, sharpness=1.0, size_px=100,
                 embedding=b"\0" * 2048, chip=None)
     calls = []
-    monkeypatch.setattr(pipeline, "recluster", lambda conn, model, *a: calls.append(1) or {"clusters": 1, "auto_assigned": 0})
+    # first grouping is a full one, later ones only add new faces (assign_new): count both
+    monkeypatch.setattr(pipeline, "recluster", lambda *a, **k: calls.append(1) or {"clusters": 1, "auto_assigned": 0})
+    monkeypatch.setattr(pipeline, "assign_new", lambda *a, **k: calls.append(1) or {"new": 1})
     monkeypatch.setattr(pipeline, "REGROUP_EVERY_S", -1)
 
     def fake_pool(jobs, fn, on_results, **kw):
@@ -58,7 +60,7 @@ def test_look_again_keeps_names(tmp_path, monkeypatch):
               (b"\0" * 512,))
     c.execute("INSERT INTO face_rejections(face_id, person_id) VALUES (1, 2)")
     c.execute("UPDATE persons SET cover_face_id = 1 WHERE id = 1")
-    monkeypatch.setattr(pipeline, "recluster", lambda conn, model, *a: {"clusters": 0, "auto_assigned": 0})
+    monkeypatch.setattr(pipeline, "recluster", lambda *a, **k: {"clusters": 0, "auto_assigned": 0})
     found = [dict(ordinal=0, x=0.11, y=0.10, w=0.2, h=0.2, score=0.9, sharpness=50, size_px=100,
                   embedding=b"\0" * 512, chip=None),        # same face, box moved a little
              dict(ordinal=1, x=0.60, y=0.50, w=0.1, h=0.1, score=0.8, sharpness=30, size_px=50,

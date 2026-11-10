@@ -51,7 +51,7 @@ def process(job: tuple[int, str, str, int | None]) -> dict:
                 "ordinal": i,
                 "x": max(f.x, 0) / W, "y": max(f.y, 0) / H,
                 "w": min(f.w, W) / W, "h": min(f.h, H) / H,
-                "score": f.score, "sharpness": f.sharpness,
+                "score": f.score, "sharpness": f.sharpness, "quality": f.quality,
                 "size_px": int(f.w * scale),
                 "embedding": f.embedding.tobytes(),
                 "chip": rel,

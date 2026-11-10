@@ -14,15 +14,18 @@ from ..config import Settings
 from ..db import transaction
 from ..scanner.pool import run_pool
 from . import arcface, models, worker
-from .cluster import ClusterParams, recluster
+from .cluster import ClusterParams, assign_new, recluster
 
 TODO = "m.status = 1 AND m.faces_status = 0 AND m.kind IN ('image', 'raw')"
 
 # While faces are being found, regroup now and then so People fills in as it goes.
 REGROUP_EVERY_S = 600
+# A photo whose face check fails is tried again on later runs, this many times in all.
+MAX_TRIES = 3
 
-_INSERT = ("INSERT INTO faces(media_id, ordinal, x, y, w, h, score, sharpness, size_px, embedding, model, chip) "
-           "VALUES (:media_id, :ordinal, :x, :y, :w, :h, :score, :sharpness, :size_px, :embedding, :model, :chip)")
+_INSERT = ("INSERT INTO faces(media_id, ordinal, x, y, w, h, score, sharpness, size_px, embedding, model, chip, quality) "
+           "VALUES (:media_id, :ordinal, :x, :y, :w, :h, :score, :sharpness, :size_px, :embedding, :model, :chip, "
+           ":quality)")
 
 
 class FacePhase:
@@ -71,10 +74,10 @@ class FacePhase:
 
     def _cluster(self, conn: sqlite3.Connection) -> None:
         self._set(state="clustering")
-        res = recluster(conn, self.tag, cluster_params(self.kind))
+        res = cluster_all(conn)
         conn.execute("INSERT OR REPLACE INTO meta(key, value) VALUES ('faces_clustered_max_id', "
                      "(SELECT coalesce(max(id), 0) FROM faces))")
-        self._set(clusters=res["clusters"], faces_auto_named=res["auto_assigned"])
+        self._set(clusters=res["clusters"] + res["new_groups"], faces_auto_named=res["auto_assigned"])
 
     def _write_and_group(self, conn: sqlite3.Connection, results: list[dict], cluster: bool) -> None:
         self._write(conn, results)
@@ -105,16 +108,21 @@ class FacePhase:
         with transaction(conn):
             for r in results:
                 if "error" in r:
+                    # Keep the reason; stay waiting (0) until MAX_TRIES runs have failed.
                     errors += 1
-                    conn.execute("UPDATE media SET faces_status = 2 WHERE id = ?", (r["id"],))
+                    conn.execute(
+                        "UPDATE media SET faces_tries = faces_tries + 1, faces_error = ?, "
+                        "faces_status = CASE WHEN faces_tries + 1 >= ? THEN 2 ELSE 0 END WHERE id = ?",
+                        (r["error"], MAX_TRIES, r["id"]))
                     continue
                 old = _old_faces(conn, r["id"])
                 conn.execute("DELETE FROM faces WHERE media_id = ?", (r["id"],))
-                conn.executemany(_INSERT, [dict(f, media_id=r["id"], model=self.tag)
+                conn.executemany(_INSERT, [dict({"quality": None}, **f, media_id=r["id"], model=self.tag)
                                            for f in r["faces"]])
                 _carry_names(conn, r["id"], old)
                 found += len(r["faces"])
-                conn.execute("UPDATE media SET faces_status = 1 WHERE id = ?", (r["id"],))
+                conn.execute("UPDATE media SET faces_status = 1, faces_error = NULL, faces_tries = 0 "
+                             "WHERE id = ?", (r["id"],))
         self._inc(faces_done=len(results), faces_found=found, faces_errors=errors)
 
     def _copy_from_twins(self, conn: sqlite3.Connection) -> None:
@@ -135,9 +143,9 @@ class FacePhase:
             if n:
                 conn.execute("DELETE FROM faces WHERE media_id IN (SELECT pid FROM temp.twin)")
                 conn.execute(
-                    "INSERT INTO faces(media_id, ordinal, x, y, w, h, score, sharpness, size_px, embedding, model, chip) "
-                    "SELECT t.pid, f.ordinal, f.x, f.y, f.w, f.h, f.score, f.sharpness, f.size_px, "
-                    "f.embedding, f.model, f.chip FROM temp.twin t JOIN faces f ON f.media_id = t.did")
+                    "INSERT INTO faces(media_id, ordinal, x, y, w, h, score, sharpness, size_px, embedding, model, chip, "
+                    "quality) SELECT t.pid, f.ordinal, f.x, f.y, f.w, f.h, f.score, f.sharpness, f.size_px, "
+                    "f.embedding, f.model, f.chip, f.quality FROM temp.twin t JOIN faces f ON f.media_id = t.did")
                 conn.execute(
                     "UPDATE media SET faces_status = (SELECT d.faces_status FROM media d "
                     "JOIN temp.twin t ON t.did = d.id WHERE t.pid = media.id) "
@@ -153,7 +161,8 @@ class FacePhase:
         """Mark every checked photo to be looked at again. Faces and names stay
         until each photo is redone; names move to the same face found again."""
         with transaction(conn):
-            return conn.execute("UPDATE media SET faces_status = 0 WHERE status = 1 AND faces_status IN (1, 2) "
+            return conn.execute("UPDATE media SET faces_status = 0, faces_tries = 0, faces_error = NULL "
+                                "WHERE status = 1 AND faces_status IN (1, 2) "
                                 "AND kind IN ('image', 'raw')").rowcount
 
     @staticmethod
@@ -215,5 +224,41 @@ def _carry_names(conn: sqlite3.Connection, media_id: int, old: list[dict]) -> No
 
 
 def cluster_params(kind: str) -> ClusterParams:
-    link, join = arcface.CLUSTER.get(kind, arcface.CLUSTER["sface"])
-    return ClusterParams(eps_sim=link, join_sim=join)
+    return ClusterParams(**arcface.CLUSTER.get(kind, arcface.CLUSTER["sface"]))
+
+
+def cluster_all(conn: sqlite3.Connection, full: bool = False) -> dict:
+    """Group the faces of every recogniser in the library, each on its own.
+
+    Faces from different models can't be compared, but while a new model is
+    re-checking the photos the old model's faces must stay in People, so each
+    model's groups get their own cluster ids and never mix.
+
+    By default only new faces are added (cluster.assign_new): named people and
+    the groups already shown are left exactly as they are. ``full`` regroups
+    everything (the user's "Regroup" button); a model whose faces were never
+    grouped is grouped in full once."""
+    kind_of = {tag: kind for kind, tag in arcface.TAGS.items()}
+    tags = [r[0] for r in conn.execute("SELECT DISTINCT model FROM faces") if r[0] in kind_of]
+    total = {"faces": 0, "clusters": 0, "noise": 0, "auto_assigned": 0, "new": 0, "suggested": 0, "new_groups": 0}
+    offset = 0
+    for tag in tags:
+        p = cluster_params(kind_of[tag])
+        grouped = conn.execute("SELECT 1 FROM faces WHERE model = ? AND (cluster_id IS NOT NULL "
+                               "OR person_id IS NOT NULL) LIMIT 1", (tag,)).fetchone()
+        if full:
+            res = recluster(conn, tag, p, offset=offset)
+            offset += res.get("clusters", 0)
+        elif grouped is None:
+            # first grouping of this model: ids after every group shown so far
+            first = conn.execute("SELECT coalesce(max(cluster_id), -1) + 1 FROM faces").fetchone()[0]
+            res = recluster(conn, tag, p, offset=first)
+        else:
+            res = assign_new(conn, tag, p)
+        for k in total:
+            total[k] += res.get(k, 0)
+    if full:
+        # suggestions are for faces still without a name
+        conn.execute("DELETE FROM face_suggestions WHERE face_id IN "
+                     "(SELECT id FROM faces WHERE person_id IS NOT NULL)")
+    return total

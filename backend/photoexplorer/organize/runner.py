@@ -154,6 +154,11 @@ class OrganizeManager:
 
     # ------------------------------------------------------------ jobs
 
+    @property
+    def busy(self) -> bool:
+        """A job is running or waiting (files are being copied or moved)."""
+        return self._current is not None or not self._q.empty()
+
     def start(self, media_ids: list[int], dest_root: str, mode: str, options: dict) -> int:
         """Check everything (same as preview), then queue the job."""
         pv = self.preview(media_ids, dest_root, mode, options, sample=0)

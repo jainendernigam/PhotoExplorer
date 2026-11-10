@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import multiprocessing as mp
+import os
 import threading
 import time
 from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
@@ -36,7 +37,7 @@ def run_pool(
     that crashed its worker process."""
     def pool_factory(n):
         return ProcessPoolExecutor(max_workers=n, mp_context=mp.get_context("spawn"),
-                                   initializer=initializer, initargs=initargs)
+                                   initializer=_worker_init, initargs=(initializer, initargs))
 
     suspects = _run(iter(jobs), fn, pool_factory, workers, workers * 4, cancel, on_results, batch)
     for job in suspects:
@@ -44,6 +45,20 @@ def run_pool(
             return
         if _run(iter([job]), fn, pool_factory, 1, 1, cancel, on_results, batch):
             on_results([on_crash(job)])
+
+
+def _worker_init(initializer: Callable, initargs: tuple) -> None:
+    """Runs in each worker: exit when the app's backend process is gone.
+    The backend leaves with os._exit when the window closes (see
+    server._watch_parent), which does not stop its workers; without this they
+    kept running (and reading photos) after the app was closed."""
+    parent = mp.parent_process()
+    if parent is not None:
+        def watch():
+            parent.join()
+            os._exit(0)
+        threading.Thread(target=watch, daemon=True, name="parent-watch").start()
+    initializer(*initargs)
 
 
 def _run(jobs, fn, pool_factory, workers, max_inflight, cancel, on_results, batch) -> list[tuple]:

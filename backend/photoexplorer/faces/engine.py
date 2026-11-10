@@ -15,7 +15,8 @@ class DetectedFace:
     h: float
     score: float
     sharpness: float  # variance of Laplacian on the aligned 112x112 face
-    embedding: np.ndarray  # float32[128], L2-normalised
+    embedding: np.ndarray  # float32[128] (SFace) or [512] (ArcFace), L2-normalised
+    quality: float | None = None  # ArcFace only: length of the raw embedding (see ArcFace.embed_raw)
 
 
 class FaceEngine:
@@ -41,19 +42,22 @@ class FaceEngine:
             x, y, fw, fh, score = float(f[0]), float(f[1]), float(f[2]), float(f[3]), float(f[14])
             if min(fw, fh) < self.min_face_px:
                 continue
+            quality = None
             if self.arc is not None:
                 try:
                     aligned = self.arc.align(bgr, f[4:14])
                 except ValueError:
                     continue
-                emb = self.arc.embed(aligned)
+                emb = self.arc.embed_raw(aligned)
             else:
                 aligned = self.rec.alignCrop(bgr, f)        # 112x112, eyes aligned
                 emb = self.rec.feature(aligned).reshape(-1).astype(np.float32)
             norm = float(np.linalg.norm(emb))
             if norm == 0:
                 continue
+            if self.arc is not None:
+                quality = norm
             gray = cv2.cvtColor(aligned, cv2.COLOR_BGR2GRAY)
             sharp = float(cv2.Laplacian(gray, cv2.CV_64F).var())
-            out.append(DetectedFace(x, y, fw, fh, score, sharp, emb / norm))
+            out.append(DetectedFace(x, y, fw, fh, score, sharp, emb / norm, quality))
         return out

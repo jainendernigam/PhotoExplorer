@@ -160,6 +160,47 @@ def strip(conn: sqlite3.Connection, today: date | None = None) -> list[dict]:
     return [c for c in cards if c["media_ids"]]
 
 
+# Background music for each kind of memory: pack moods (content.py music packs), best fit first.
+MUSIC_MOODS = {
+    "on_this_day": ["nostalgic", "reflective", "warm"],
+    "this_week": ["nostalgic", "reflective", "warm"],
+    "person": ["warm", "calm", "reflective"],
+    "birthday": ["festive", "warm"],
+    "trip": ["adventure", "upbeat", "warm"],
+    "best_of_year": ["warm", "upbeat", "reflective"],
+    "rediscover": ["nostalgic", "ambient", "reflective"],
+    "favourites": ["warm", "calm"],
+    "pets": ["upbeat", "lullaby"],
+}
+
+
+def add_music(cards: list[dict], tracks: list[dict]) -> list[dict]:
+    """Give every card a song to play while its story is shown.
+
+    The user's own songs ("My music" folder) come first: they are what the
+    user chose to hear. Otherwise a pack track whose mood suits the memory
+    (nostalgic for "On this day", festive for a birthday...). The pick is
+    fixed per card, so a memory plays the same song each time it's opened."""
+    own = [t for t in tracks if t["id"].startswith("mine:")]
+    pack = [t for t in tracks if not t["id"].startswith("mine:")]
+    for c in cards:
+        rnd = random.Random(c["key"])
+        if own:
+            pool = own
+        else:
+            kind = "birthday" if c["kind"] == "person" and c["subtitle"].startswith("Birthday") else c["kind"]
+            moods = MUSIC_MOODS.get(kind, ["warm", "calm"])
+            pool = []
+            for mood in moods:   # the best-fitting mood that has any track
+                pool = [t for t in pack if t.get("mood") == mood]
+                if pool:
+                    break
+            pool = pool or pack
+        t = rnd.choice(pool) if pool else None
+        c["music"] = {"id": t["id"], "title": t["title"], "seconds": t.get("seconds")} if t else None
+    return cards
+
+
 def _trips(conn: sqlite3.Connection, rnd: random.Random) -> list[dict]:
     from . import places
     import numpy as np

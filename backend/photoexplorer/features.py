@@ -224,7 +224,9 @@ def register(app: FastAPI, db, settings, scanner) -> None:
         today = date.today().isoformat()
         if _strip["day"] != today or _strip["stamp"] != stamp:
             _strip.update(day=today, stamp=stamp, cards=memories.strip(db.conn))
-        return _strip["cards"]
+        # Songs can be added to "My music" at any time: pick them fresh (cheap).
+        from .content import Content
+        return memories.add_music(_strip["cards"], Content(settings.data_dir).music())
 
     # ---------------------------------------------------------------- better face models (ArcFace)
 
@@ -241,6 +243,8 @@ def register(app: FastAPI, db, settings, scanner) -> None:
     def face_model_download(body: KindIn):
         if body.kind not in arcface.PACKS:
             raise HTTPException(400, "Unknown model")
+        if not arcface.runtime_ok():
+            raise HTTPException(400, "This copy of the app lacks onnxruntime; update the app first.")
         return downloads.start(f"face-{body.kind}", lambda prog: arcface.download(settings.data_dir, body.kind, prog))
 
     @app.post("/api/faces/models/use")

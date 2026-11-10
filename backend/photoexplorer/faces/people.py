@@ -30,6 +30,24 @@ def _ensure_person(conn: sqlite3.Connection, name: str) -> int:
     return pid
 
 
+def suggestions(conn: sqlite3.Connection, person_id: int | None = None, limit: int = 100,
+                after_score: float | None = None) -> list[dict]:
+    """Doubtful new faces waiting for "Is this X?", surest first."""
+    q = ("SELECT s.face_id, s.person_id, p.name, s.score, f.media_id FROM face_suggestions s "
+         "JOIN persons p ON p.id = s.person_id JOIN faces f ON f.id = s.face_id "
+         "JOIN media m ON m.id = f.media_id AND m.status = 1 WHERE f.person_id IS NULL")
+    args: list = []
+    if person_id is not None:
+        q += " AND s.person_id = ?"
+        args.append(person_id)
+    if after_score is not None:
+        q += " AND s.score < ?"
+        args.append(after_score)
+    q += " ORDER BY s.score DESC LIMIT ?"
+    return [dict(zip(("face_id", "person_id", "person_name", "score", "media_id"), r))
+            for r in conn.execute(q, (*args, limit))]
+
+
 def name_cluster(conn: sqlite3.Connection, cluster_id: int, name: str) -> dict:
     """Give a cluster a name. Using an existing name merges the cluster into
     that person (the usual way to join two clusters of the same person)."""
@@ -73,6 +91,8 @@ def merge_persons(conn: sqlite3.Connection, target_id: int, source_ids: list[int
             raise PeopleError("Target person not found.")
         n = conn.execute(f"UPDATE faces SET person_id = ? WHERE person_id IN ({marks})",
                          (target_id, *sources)).rowcount
+        conn.execute(f"UPDATE face_suggestions SET person_id = ? WHERE person_id IN ({marks})",
+                     (target_id, *sources))
         conn.execute(f"INSERT OR IGNORE INTO face_rejections(face_id, person_id) "
                      f"SELECT face_id, ? FROM face_rejections WHERE person_id IN ({marks})",
                      (target_id, *sources))
@@ -89,6 +109,7 @@ def assign_faces(conn: sqlite3.Connection, face_ids: list[int], person_id: int |
         marks = ",".join("?" * len(face_ids))
         conn.execute(f"DELETE FROM face_rejections WHERE person_id = ? AND face_id IN ({marks})",
                      (person_id, *face_ids))
+        conn.execute(f"DELETE FROM face_suggestions WHERE face_id IN ({marks})", face_ids)
         return conn.execute(f"UPDATE faces SET person_id = ?, assigned_by = 'user' WHERE id IN ({marks})",
                             (person_id, *face_ids)).rowcount
 
@@ -99,6 +120,8 @@ def reject_faces(conn: sqlite3.Connection, face_ids: list[int], person_id: int) 
     with transaction(conn):
         conn.executemany("INSERT OR IGNORE INTO face_rejections(face_id, person_id) VALUES (?, ?)",
                          [(f, person_id) for f in face_ids])
+        conn.execute(f"DELETE FROM face_suggestions WHERE person_id = ? AND face_id IN ({marks})",
+                     (person_id, *face_ids))
         return conn.execute(
             f"UPDATE faces SET person_id = NULL, assigned_by = NULL WHERE person_id = ? AND id IN ({marks})",
             (person_id, *face_ids)).rowcount

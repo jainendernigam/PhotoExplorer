@@ -86,6 +86,59 @@ def place_ids(conn: sqlite3.Connection, place: int) -> list[int]:
     return _groups(conn).get(place, [])
 
 
+# Newer or common spellings -> the name used in the map data (Natural Earth uses older names).
+ALIASES = {
+    "shimla": "simla", "gurugram": "gurgaon", "dehradun": "dehra dun", "uttarakhand": "uttaranchal",
+    "bengaluru": "bangalore", "mumbai": "bombay", "kolkata": "calcutta", "chennai": "madras",
+    "puducherry": "pondicherry", "varanasi": "benares", "kochi": "cochin", "thiruvananthapuram": "trivandrum",
+    "prayagraj": "allahabad", "mysuru": "mysore", "vadodara": "baroda",
+}
+
+
+def _close(word: str, name: str) -> bool:
+    """A search word matches a place name: the whole name or one word of it
+    ('goa', 'delhi'), the start of one (4+ letters: 'hima' -> Himachal), or
+    one letter off (5+ letters): 'shimla' finds 'Simla', 'dehradun' finds
+    'Dehra Dun'."""
+    flat = name.replace(" ", "").replace("-", "")
+    tokens = name.replace("-", " ").split()
+    if word == flat or (len(word) >= 4 and word in tokens):   # not 'new' -> New Delhi
+        return True
+    if len(word) >= 4 and (flat.startswith(word) or any(t.startswith(word) for t in tokens)):
+        return True
+    if len(word) < 5 or abs(len(word) - len(flat)) > 1:
+        return False
+    # edit distance <= 1
+    if len(word) == len(flat):
+        return sum(a != b for a, b in zip(word, flat)) <= 1
+    short, long_ = (word, flat) if len(word) < len(flat) else (flat, word)
+    return any(long_[:i] + long_[i + 1:] == short for i in range(len(long_)))
+
+
+def search_ids(conn: sqlite3.Connection, q: str) -> list[int]:
+    """Photos whose GPS location is in a town, state or country named in the
+    search ("Simla", "Himachal", "UK"...). Offline: the town is the nearest
+    one in the map data (see place_list)."""
+    codes = {"uk": "united kingdom", "us": "united states of america", "usa": "united states of america",
+             "uae": "united arab emirates", "britain": "united kingdom", "england": "united kingdom",
+             "america": "united states of america"}
+    words = [w for w in (x.strip(".,;:!?\"'").lower() for x in q.split())
+             if (len(w) >= 3 or w in codes) and not w.isdigit()]
+    if not words:
+        return []
+    _, p = _places()
+    groups = _groups(conn)
+    out: list[int] = []
+    for k, ids in groups.items():
+        name, country, state = p[k][0].lower(), str(p[k][4]).lower(), str(p[k][5]).lower()
+        for w in words:
+            w = ALIASES.get(w, w)
+            if codes.get(w) == country or _close(w, name) or _close(w, state) or _close(w, country):
+                out += ids
+                break
+    return out
+
+
 def place_list(conn: sqlite3.Connection, limit: int = 300) -> list[dict]:
     """Towns and cities with photos, most photos first, with a cover photo each."""
     _, p = _places()

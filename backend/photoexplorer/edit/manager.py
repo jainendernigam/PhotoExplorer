@@ -278,8 +278,9 @@ class EditManager:
                 # same framing: the original's faces (and names) fit the copy as they are
                 conn.execute(
                     "INSERT INTO faces(media_id, ordinal, x, y, w, h, score, sharpness, size_px, embedding, model, "
-                    "chip, cluster_id, person_id, assigned_by) SELECT ?, ordinal, x, y, w, h, score, sharpness, "
-                    "size_px, embedding, model, chip, cluster_id, person_id, assigned_by FROM faces WHERE media_id = ?",
+                    "chip, cluster_id, person_id, assigned_by, quality) SELECT ?, ordinal, x, y, w, h, score, "
+                    "sharpness, size_px, embedding, model, chip, cluster_id, person_id, assigned_by, quality "
+                    "FROM faces WHERE media_id = ?",
                     (new_id, r["id"]))
                 conn.execute("UPDATE media SET faces_status = ? WHERE id = ?", (r["faces_status"], new_id))
             conn.execute("INSERT INTO media_edits(edited_id, original_id, mode, ops, created_at) VALUES (?, ?, 'copy', ?, ?)",

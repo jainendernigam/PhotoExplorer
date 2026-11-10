@@ -62,6 +62,7 @@ def _idle_status() -> dict:
         "new": 0,
         "changed": 0,
         "missing": 0,
+        "moved": 0,             # files found at a new path (folder renamed or moved); they keep everything
         "to_index": 0,
         "indexed": 0,
         "errors": 0,
@@ -109,14 +110,15 @@ class ScanManager:
         """mode: 'full' (walk, index, faces, cluster, duplicates) | 'faces'
         (faces + cluster) | 'recheck' (look again in every photo, then cluster) |
         'cluster' (re-cluster only) | 'dedup' (duplicates only)."""
-        if mode not in ("full", "faces", "recheck", "cluster", "dedup", "smart"):
+        if mode not in ("full", "auto", "faces", "recheck", "cluster", "dedup", "smart"):
             raise ValueError(mode)
         with self._lock:
             if self.running:
                 return False
             self._cancel.clear()
             self._st = _idle_status()
-            self._st.update(state={"full": "walking", "dedup": "dedup", "smart": "smart"}.get(mode, "faces"),
+            self._st.update(state={"full": "walking", "auto": "walking", "dedup": "dedup",
+                                   "smart": "smart"}.get(mode, "faces"),
                             mode=mode, started_at=int(time.time()))
             self._thread = threading.Thread(
                 target=self._run, args=(source_ids, retry_errors, mode), name="scanner", daemon=True)
@@ -162,13 +164,23 @@ class ScanManager:
                 q += f" AND id IN ({','.join('?' * len(source_ids))})"
                 params = list(source_ids)
             sources = conn.execute(q, params).fetchall()
+            first_new = conn.execute("SELECT coalesce(max(id), 0) + 1 FROM media").fetchone()[0]
             reachable = []
             for src in sources:
-                if self._cancel.is_set() or mode != "full":
+                if self._cancel.is_set() or mode not in ("full", "auto"):
                     break
                 if self._walk_source(conn, src["id"], src["path"]):
                     reachable.append(src["id"])
             ids = reachable
+            # Renamed / moved folders: the "new" files are old ones (names, groups... stay).
+            if ids and not self._cancel.is_set():
+                self._relink_moves(conn, first_new)
+            if mode == "auto":
+                if not self._auto_has_work(conn):
+                    final = "idle"
+                    return
+                mode = "full"     # something changed: index, duplicates, search, faces as usual
+                self._set(mode="auto")
 
             if retry_errors and ids and not self._cancel.is_set():
                 conn.execute(
@@ -177,6 +189,8 @@ class ScanManager:
 
             if ids and not self._cancel.is_set():
                 self._index(conn, ids)
+                if not self._cancel.is_set():
+                    self._relink_moves(conn, first_new)   # renamed too: matched by content now
             # Duplicates first: they take minutes, faces can take hours on a big library.
             if mode in ("full", "dedup") and not self._cancel.is_set():
                 self._dedup(conn)
@@ -194,10 +208,13 @@ class ScanManager:
         finally:
             st = self.status()
             stats = {k: st[k] for k in ("mode", "folders", "discovered", "new", "changed",
-                                        "missing", "indexed", "errors", "faces_done",
+                                        "missing", "moved", "indexed", "errors", "faces_done",
                                         "faces_found", "clusters", "dedup_exact", "dedup_similar")}
-            conn.execute("UPDATE scan_runs SET finished_at = ?, state = ?, stats = ? WHERE id = ?",
-                         (int(time.time()), final, json.dumps(stats), run_id))
+            if final == "idle":   # automatic check, nothing changed: no history entry
+                conn.execute("DELETE FROM scan_runs WHERE id = ?", (run_id,))
+            else:
+                conn.execute("UPDATE scan_runs SET finished_at = ?, state = ?, stats = ? WHERE id = ?",
+                             (int(time.time()), final, json.dumps(stats), run_id))
             conn.close()
             self._set(state=final, finished_at=int(time.time()), current=None, eta_s=None)
 
@@ -222,12 +239,9 @@ class ScanManager:
         from ..faces.pipeline import FacePhase
         phase = FacePhase(self.s, self._cancel, self._set, self._inc)
         if mode == "cluster":
-            from ..faces import arcface
-            from ..faces.cluster import recluster
-            from ..faces.pipeline import cluster_params
+            from ..faces.pipeline import cluster_all
             self._set(state="clustering")
-            kind = arcface.current(conn, self.s.data_dir)
-            res = recluster(conn, arcface.TAGS[kind], cluster_params(kind))
+            res = cluster_all(conn, full=True)   # the user asked to regroup everything
             self._set(clusters=res["clusters"], faces_auto_named=res["auto_assigned"])
         else:
             if mode == "recheck":
@@ -242,6 +256,24 @@ class ScanManager:
         find_groups(conn, self.s.thumbs_dir, progress=self._set)
 
     # ------------------------------------------------------------ phase 1: walk
+
+    def _auto_has_work(self, conn: sqlite3.Connection) -> bool:
+        """After an automatic walk: did anything change, or is work left over
+        (files to index, photos to check for faces, a stopped scan)?"""
+        st = self.status()
+        if st["new"] or st["changed"] or st["missing"] or st["moved"]:
+            return True
+        if conn.execute(f"SELECT EXISTS (SELECT 1 FROM media WHERE status = {PENDING})").fetchone()[0]:
+            return True
+        return self.s.faces_enabled and bool(conn.execute(
+            f"SELECT EXISTS (SELECT 1 FROM media WHERE status = {DONE} AND faces_status = 0 "
+            f"AND kind IN ('image', 'raw'))").fetchone()[0])
+
+    def _relink_moves(self, conn: sqlite3.Connection, first_new: int) -> None:
+        from .moves import find_moves, relink
+        moved = relink(conn, find_moves(conn, first_new))
+        if moved:
+            self._inc(moved=moved, new=-moved, missing=-moved)
 
     def _walk_source(self, conn: sqlite3.Connection, source_id: int, root: str) -> bool:
         """Returns False if the source folder could not be reached."""

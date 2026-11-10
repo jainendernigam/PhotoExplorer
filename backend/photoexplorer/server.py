@@ -159,6 +159,12 @@ class MediaFilter:
                 conds.append("m.id IN (SELECT rowid FROM media_fts WHERE media_fts MATCH ?)"); args.append(terms)
             if smart:
                 conds.append("m.id IN (SELECT media_id FROM search_hits WHERE q = ?)"); args.append(q)
+            if SEARCH is not None and SEARCH.db is not None:
+                # Where the photo was taken (GPS): "Simla", "Himachal", "UK"...
+                from . import places as places_mod
+                ids = places_mod.search_ids(SEARCH.db.conn, self.q)
+                if ids:
+                    conds.append(f"m.id IN ({','.join(str(int(i)) for i in ids)})")
             if conds:
                 where.append("(" + " OR ".join(conds) + ")")
         return where, args
@@ -1178,8 +1184,13 @@ def create_app(settings: Settings, token: str) -> FastAPI:
             "FROM faces f JOIN media m ON m.id = f.media_id AND m.status = 1").fetchone()
         todo = c.execute("SELECT count(*) FROM media WHERE status = 1 AND faces_status = 0 "
                          "AND kind IN ('image', 'raw')").fetchone()[0]
+        failed = c.execute("SELECT count(*) FROM media WHERE status = 1 AND faces_status = 2").fetchone()[0]
+        doubtful = c.execute("SELECT count(*) FROM face_suggestions s JOIN faces f ON f.id = s.face_id "
+                             "WHERE f.person_id IS NULL").fetchone()[0]
         return dict(row) | {
             "photos_todo": todo,
+            "photos_failed": failed,
+            "suggestions": doubtful,
             "persons": c.execute("SELECT count(*) FROM persons").fetchone()[0],
             "available": face_models.available(),
             "missing": face_models.missing(),
@@ -1253,6 +1264,13 @@ def create_app(settings: Settings, token: str) -> FastAPI:
             f"m.taken_at FROM faces f JOIN media m ON m.id = f.media_id AND m.status = 1 "
             f"WHERE {col} = ? AND f.id > ? ORDER BY f.id LIMIT ?", (val, after_id, limit)).fetchall()
         return [dict(r) | {"taken": wall_to_iso(r["taken_at"])} for r in rows]
+
+    @app.get("/api/faces/suggestions")
+    def face_suggestions(person_id: int | None = None, limit: int = Query(100, ge=1, le=1000),
+                         after_score: float | None = None):
+        """Doubtful new faces to confirm ("Is this X?"), surest first. Confirm
+        with POST /api/faces/assign, reject with POST /api/faces/reject."""
+        return people.suggestions(db.conn, person_id, limit, after_score)
 
     @app.post("/api/faces/assign")
     def assign(body: AssignIn):
@@ -1485,7 +1503,38 @@ def create_app(settings: Settings, token: str) -> FastAPI:
         except system.SystemError_ as e:
             raise HTTPException(400, str(e))
 
+    # ---------------------------------------------------------------- automatic scan
+
+    def _busy() -> bool:
+        """Something else is moving or creating library files right now."""
+        return (scanner.running or organizer.busy or bulk.get("state") == "running" or gimport.running
+                or editor.batch_status().get("state") == "running")
+
+    if os.environ.get("PHOTOEXPLORER_AUTOSCAN", "1") != "0":
+        _start_autoscan(scanner, _busy)
     return app
+
+
+AUTOSCAN_FIRST_S = 60      # after start-up, so the window opens without a scan competing
+AUTOSCAN_EVERY_S = 600
+
+
+def _start_autoscan(scanner: ScanManager, busy) -> None:
+    """Pick up new, changed, moved and deleted files without the user pressing
+    Scan: a quick walk now and then ('auto' mode), which goes on to index,
+    faces and grouping only when the walk found something. Unchanged files
+    cost a directory listing, nothing more."""
+    def run():
+        time.sleep(AUTOSCAN_FIRST_S)
+        while True:
+            try:
+                if not busy():
+                    scanner.start(mode="auto")
+            except Exception:  # never let the timer die
+                import logging
+                logging.getLogger(__name__).exception("automatic scan failed to start")
+            time.sleep(AUTOSCAN_EVERY_S)
+    threading.Thread(target=run, daemon=True, name="autoscan").start()
 
 
 def _day_seconds(day: str, end: bool) -> int:
