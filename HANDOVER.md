@@ -15,8 +15,11 @@ A privacy-first, portable Windows photo organiser. Everything runs on the PC; ph
 | Content packs | `content/` | themes, music (music files are built, not stored) |
 
 ## Repositories
-- **Source (private):** `jainendernigam/PhotoExplorer-source`. Branches: `master` (0.9.0 baseline), `face-grouping-and-ui` (0.9.2).
-- **Releases (public):** `jainendernigam/PhotoExplorer` holds only the README and the releases. The in-app updater reads `releases/latest/download/manifest.json` there.
+- **One public repo:** `jainendernigam/PhotoExplorer`.
+  - Branch `source`: the full source (this file included). Work on a new branch from it; merge back when released.
+  - Default branch: the README.
+  - Releases: the in-app updater reads `releases/latest/download/manifest.json`, so releases must stay public.
+- The repo is public: never commit secrets, personal photos, face data or private email addresses (commits use `jainendernigam@users.noreply.github.com`).
 
 ## Set up a PC to build
 1. **Tools:** Node.js 24 + npm; Rust via rustup with `stable-x86_64-pc-windows-gnu` as default; MinGW-w64 GCC (WinLibs, `winget install BrechtSanders.WinLibs.POSIX.MSVCRT`); Git.
