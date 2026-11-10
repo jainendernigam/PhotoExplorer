@@ -1,7 +1,7 @@
 # Photo Explorer: handover
 
 For anyone (or any Claude Code session) who builds, changes or releases Photo Explorer.
-Last updated 2026-11-10, release 0.9.2.
+Last updated 2026-11-10, release 0.9.3.
 
 ## What it is
 A privacy-first, portable Windows photo organiser. Everything runs on the PC; photos never leave it.
@@ -33,7 +33,7 @@ A privacy-first, portable Windows photo organiser. Everything runs on the PC; ph
 ## Run while developing
 - Engine: from `backend\`, `set PHOTOEXPLORER_AUTOSCAN=0` then `..\runtime\python\python.exe -m photoexplorer --data-dir <a test data folder> serve --port 8765 --token dev`
 - Screens: `cd app` then `npm run dev` (port 1420). `.claude/launch.json` has this as "ui".
-- Tests: from `backend\`, `..\runtime\python\python.exe -m pytest -q` (109 pass, 2 skipped that need real faces or the CLIP model). `npx tsc --noEmit` in `app\` for the screens.
+- Tests: from `backend\`, `..\runtime\python\python.exe -m pytest -q` (111 pass, 2 skipped that need real faces or the CLIP model). `npx tsc --noEmit` in `app\` for the screens.
 - Any script that starts a scan needs an `if __name__ == "__main__":` guard (worker processes re-import it).
 
 ## Release steps
@@ -58,17 +58,22 @@ A privacy-first, portable Windows photo organiser. Everything runs on the PC; ph
 - Automatic scan 60 s after start, then every 10 min (`PHOTOEXPLORER_AUTOSCAN=0` turns it off).
 - Search by content: CLIP ViT-B/32 (MIT), optional in-app download to `<data>/models/clip`.
 - Places: offline Natural Earth map (`places/world.json`, public domain); search matches place names from GPS.
+- Google Photos is the benchmark for how things behave (navigation, selection, smooth movement), not for its look.
+- Sections once visited stay open in the background (`KEEP` in `App.tsx`; hidden ones read `useActive()` from `lib/active.ts`), so back/forward keeps the place.
+- Each photo's main colour (`media.color`, schema v14) shows while its thumbnail loads; older photos are filled in the background (`scanner/colors.py`).
 - UI: one top bar beside Look in every section; Create ▾ holds slideshow, video, collage and organize; Timeline lives inside Library.
 
 ## Done (recent)
 - 0.9.0: memories strip, Places, Things, search by content, favourites, archive, notes, optional better faces.
+- 0.9.3: back/forward between sections, Shift range preview, month tick, Ctrl+A, Delete to archive, Undo; colour placeholders and fade-in, date bubble, pinned month, Ctrl+scroll tile size, smooth paging keys, fades, reduced motion.
 - 0.9.2: face grouping fix, moved folders, automatic scan, Review, music for memories, place search, Library filters, new top bar and Create menu, person page, collapsible map, viewer info panel, window fits the taskbar.
 
 ## Pending
-- Check 0.9.2 on the owner's PC: Review answers, the new top bar, window at 150% scaling and with the taskbar on the left.
+- Check 0.9.2/0.9.3 on the owner's PC: Review answers, top bar, window at 150% scaling and with the taskbar on the left, the mouse back button in the packaged app, how long the colour fill takes on 25k photos.
+- Google-style items not done yet: search suggestions as you type, photo grows out of its thumbnail, right-click menu, hover heart and video preview, drag photos onto an album, helpful empty pages.
 - Tune CLIP thresholds (search, categories, pets) on a real library.
 - Not done from the 0.9.2 spec: an automatic "⋯" overflow menu on narrow windows; hidden face groups are remembered per PC only; Review shows a thumbnail, not the full viewer.
 - Ideas: a larger offline gazetteer (GeoNames) for exact towns; Windows folder-change notifications for instant pick-up; code signing.
 
 ## Next step
-Owner tests 0.9.2 on their PC and reports what to adjust.
+Owner tests 0.9.3 on their PC and reports what to adjust; then the remaining Google-style items.

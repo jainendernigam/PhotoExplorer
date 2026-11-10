@@ -2311,7 +2311,7 @@ dependencies = [
 
 [[package]]
 name = "photo-explorer"
-version = "0.9.2"
+version = "0.9.3"
 dependencies = [
  "crc32fast",
  "native-tls",
