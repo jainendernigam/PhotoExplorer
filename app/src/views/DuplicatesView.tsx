@@ -2,6 +2,7 @@
 // shows a suggestion (green = keep, red = move away) that can be changed;
 // files are moved to an archive folder (or the Recycle Bin), never deleted,
 // and every action can be undone from the Removed tab.
+import TopBar from "../lib/topbar";
 import { useCallback, useEffect, useState } from "react";
 import { api, DupGroup, DupKind, DupMember, DupSummary, post, previewUrl, Removal, thumbUrl } from "../api";
 import { fmtBytes, fmtTaken } from "../lib/format";
@@ -90,8 +91,8 @@ export default function DuplicatesView({ busy, onChanged }: { busy: boolean; onC
   return (
     <div className="flex h-full flex-col">
       <header className="space-y-3 border-b border-neutral-800 p-4">
-        <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-xl font-semibold">Duplicates</h1>
+        <TopBar>
+          <span className="font-semibold">Duplicates</span>
           <span className="text-sm text-neutral-400">
             {summary && `Up to ${fmtBytes((["exact", "near", "burst"] as DupKind[]).reduce((a, k) => a + summary.kinds[k].reclaim_bytes, 0))} can be freed`}
           </span>
@@ -105,7 +106,7 @@ export default function DuplicatesView({ busy, onChanged }: { busy: boolean; onC
           </label>
           <button className="rounded bg-neutral-800 px-3 py-1.5 text-sm hover:bg-neutral-700 disabled:opacity-40" disabled={busy}
             onClick={() => run(async () => { await post("/api/dedup/run"); onChanged(); })}>Find duplicates</button>
-        </div>
+        </TopBar>
         <nav className="flex flex-wrap gap-1">
           {TABS.map((t) => {
             const n = t.id === "removed" ? summary?.removed_files : summary?.kinds[t.id].groups;

@@ -21,6 +21,8 @@ import PrintDialog from "./PrintDialog";
 import { useAppearance } from "../lib/appearance";
 import Icon, { IconName } from "../lib/icons";
 import { markMedia } from "../api";
+import TopBar from "../lib/topbar";
+import CreateMenu from "./CreateMenu";
 
 type Row =
   | { kind: "header"; s: number }
@@ -46,9 +48,13 @@ const aspectOf = (m: Media) => Math.min(3, Math.max(0.4, m.width && m.height ? m
 // full layout; window.__PE_MAX_SCROLL_PX lowers the cap for testing.
 const maxScrollPx = (): number => (window as unknown as { __PE_MAX_SCROLL_PX?: number }).__PE_MAX_SCROLL_PX ?? 12_000_000;
 
-export default function PhotoGrid({ filters, sectionNote, emptyText = "No photos here yet.", onAlbumChanged, head, above }: {
+export default function PhotoGrid({ filters, sectionNote, emptyText = "No photos here yet.", onAlbumChanged, head, tail, above, noOrganize, onTotal, emptyAction }: {
   filters: Filters;
-  head?: React.ReactNode;        // search box and filters, shown at the left of the toolbar
+  head?: React.ReactNode;        // search box and filters: the left of the top bar beside Look
+  tail?: React.ReactNode;        // extra actions just before Create ▾ (e.g. a person's ⋯ menu)
+  noOrganize?: boolean;          // Organize doesn't apply here
+  onTotal?: (n: number) => void; // the number of photos shown, when it changes
+  emptyAction?: { label: string; fn: () => void };
   above?: React.ReactNode;       // shown above the photos; folds away once you scroll down (memories strip)
   sectionNote?: (month: string) => string;
   emptyText?: string;
@@ -63,7 +69,8 @@ export default function PhotoGrid({ filters, sectionNote, emptyText = "No photos
   const [tile, setTile] = useState(170);
   const [open, setOpen] = useState<number | null>(null);
   const [play, setPlay] = useState(false);
-  const [folded, setFolded] = useState(false);   // the strip above folds away while scrolled down          // the viewer opens straight into a slideshow
+  const [folded, setFolded] = useState(false);
+  const [scrubbing, setScrubbing] = useState(false);   // the strip above folds away while scrolled down          // the viewer opens straight into a slideshow
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [create, setCreate] = useState<CreateSource | null>(null);
   const [organize, setOrganize] = useState<CreateSource | null>(null);
@@ -77,10 +84,39 @@ export default function PhotoGrid({ filters, sectionNote, emptyText = "No photos
     setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   // The tick on a photo selects it straight away; while anything is ticked,
   // clicking a photo ticks it too, and unticking the last one ends selecting.
-  const tickSel = toggleSel;
+  const getItemRef = useRef<(g: number) => Media | undefined>(() => undefined);
+  // Shift-click selects a range; pressing on a tick and dragging over other tiles ticks them too.
+  const lastTick = useRef<number | null>(null);
+  const dragTick = useRef<null | boolean>(null);   // true: dragging adds, false: removes
+  const tickSel = (id: number, g: number, shift = false) => {
+    if (shift && lastTick.current !== null) {
+      const [a, b] = [Math.min(lastTick.current, g), Math.max(lastTick.current, g)];
+      setSelected((s) => {
+        const n = new Set(s);
+        for (let k = a; k <= b; k++) { const m = getItemRef.current(k); if (m) n.add(m.id); }
+        return n;
+      });
+    } else toggleSel(id);
+    lastTick.current = g;
+  };
+  useEffect(() => {
+    const up = () => { dragTick.current = null; };
+    window.addEventListener("pointerup", up);
+    return () => window.removeEventListener("pointerup", up);
+  }, []);
   const selecting = selected.size > 0;
   const sel = selecting;
   const clearSel = () => setSelected(new Set());
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement;
+      if (open !== null || create || organize || editIds || printIds || ["INPUT", "TEXTAREA", "SELECT"].includes(t?.tagName) || t?.isContentEditable) return;
+      if (e.key === "Escape" && selected.size) clearSel();
+      else if (e.key === " " && !(t?.tagName === "BUTTON") && total) { e.preventDefault(); setPlay(true); setOpen(0); }
+    };
+    window.addEventListener("keydown", k);
+    return () => window.removeEventListener("keydown", k);
+  });
   const [version, setVersion] = useState(0);
   const gallery = useAppearance().layout === "gallery";
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -183,6 +219,7 @@ export default function PhotoGrid({ filters, sectionNote, emptyText = "No photos
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [buckets, cols, cell, gallery, tile, avail, gallery ? version : 0]);
   const { rows, sectionRow, sectionStart, total, sizes, starts } = layout;
+  useEffect(() => { if (buckets) onTotal?.(total); }, [buckets, total]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   const virt = useVirtualizer({
     count: rows.length,
@@ -248,6 +285,7 @@ export default function PhotoGrid({ filters, sectionNote, emptyText = "No photos
     if (!items) { ensure(s); return undefined; }
     return items[i];
   }, [locate, total, ensure, buckets]);
+  getItemRef.current = getItem;
 
   // Year scrubber marks, from the exact layout.
   const totalSize = virt.getTotalSize();
@@ -283,55 +321,55 @@ export default function PhotoGrid({ filters, sectionNote, emptyText = "No photos
 
   return (
     <div className="relative h-full flex flex-col min-h-0">
-      <div className="flex flex-wrap items-center gap-2 border-b border-neutral-900 px-3 py-2 text-sm">
+      <TopBar>
         {head}
-        <span className="text-xs text-neutral-500">{buckets ? `${total.toLocaleString()} items` : "Loading…"}
-          {currentMonth && <span className="ml-2 text-neutral-400">{monthLabel(currentMonth)}</span>}</span>
+        <span className="whitespace-nowrap text-xs text-neutral-500">{buckets ? total.toLocaleString() : "…"}
+          {currentMonth && <span className="ml-1.5 text-neutral-400">· {monthLabel(currentMonth)}</span>}</span>
         <span className="flex-1" />
-        {notice && <span className="text-xs text-emerald-400">{notice} <button onClick={() => setNotice(null)}>✕</button></span>}
-        {sel ? (
-          // Something is ticked: what can be done with the selection.
-          <div className="pe-toolbar flex items-center overflow-visible rounded-xl border border-neutral-700 bg-neutral-900 shadow-sm">
-            <span className="flex items-center gap-1.5 border-r border-neutral-700 px-3 py-1.5 font-medium text-sky-300">
-              {selected.size.toLocaleString()} selected</span>
-            <TB icon="heart" label="Favourite" title="Add to favourites (or remove, if all already are)"
-              onClick={() => mark({ favorite: !allFav })} active={allFav} />
-            <TB icon={filters.show === "archive" ? "unarchive" : "archive"} label={filters.show === "archive" ? "Unarchive" : "Archive"}
-              title={filters.show === "archive" ? "Bring back into the library" : "Hide from the library without deleting (see Archive)"}
-              onClick={() => mark({ archived: filters.show !== "archive" })} />
-            <TB icon="edit" label="Edit" title="Rotate, auto fix, filter or resize them all" onClick={() => setEditIds([...selected])} />
-            <TB icon="printer" label="Print" title="Print them, or make a contact sheet (PDF)" onClick={() => setPrintIds([...selected])} />
-            <span className="relative">
-              <TB icon="album" label="Album" title="Add to an album" onClick={() => setAlbumPick((v) => !v)} />
-              {albumPick && <AlbumPicker ids={[...selected]} onDone={(msg) => { setAlbumPick(false); setNotice(msg); onAlbumChanged?.(); }} />}
-            </span>
-            {filters.albumId != null && (
-              <TB icon="x" label="Remove from album" title="Take them out of this album (photos stay)" onClick={async () => {
-                const r = await post<{ removed: number }>(`/api/albums/${filters.albumId}/remove`, { media_ids: [...selected] });
-                setNotice(`Removed ${r.removed} from the album (the photos themselves are untouched).`);
-                clearSel(); setReload((x) => x + 1); onAlbumChanged?.();
-              }} />
-            )}
-            <TB icon="folders" label="Organize" title="Copy, link or move into a folder structure"
-              onClick={() => setOrganize({ mediaIds: [...selected], count: selected.size })} />
-            <TB icon="x" label="" title="Clear the selection" onClick={clearSel} />
-          </div>
-        ) : (
-          <div className="pe-toolbar flex items-center overflow-hidden rounded-xl border border-neutral-700 bg-neutral-900 shadow-sm">
-            <TB icon="folders" label="Organize" title="Copy, link or move into a folder structure" disabled={!total}
-              onClick={() => setOrganize({ filters, count: total })} />
-            <TB icon="play" label="Slideshow" title="Play these photos full screen, one after another" disabled={!total}
-              onClick={() => { setPlay(true); setOpen(0); }} />
-            <TB icon="minus" label="" title="Smaller tiles" onClick={() => setTile((t) => Math.max(90, t - 30))} />
-            <TB icon="plus" label="" title="Bigger tiles" onClick={() => setTile((t) => Math.min(360, t + 30))} />
-          </div>
-        )}
-        <button className="pe-create flex items-center gap-1.5 rounded-xl bg-sky-600 px-3.5 py-1.5 font-medium text-white shadow-sm hover:bg-sky-500 disabled:opacity-40"
-          disabled={!total} title="Save a slideshow video or a collage"
-          onClick={() => setCreate(sel ? { mediaIds: [...selected], count: selected.size } : { filters, count: total })}>
-          <Icon name="sparkles" />{sel ? "Create from selection" : "Create"}
-        </button>
-      </div>
+        <CreateMenu count={sel ? selected.size : total} selection={sel}
+          onPlay={() => { setPlay(true); setOpen(0); }}
+          onVideo={() => setCreate(sel ? { mediaIds: [...selected], count: selected.size, kind: "slideshow" } : { filters, count: total, kind: "slideshow" })}
+          onCollage={() => setCreate(sel ? { mediaIds: [...selected], count: selected.size, kind: "collage" } : { filters, count: total, kind: "collage" })}
+          onOrganize={noOrganize ? undefined : () => setOrganize(sel ? { mediaIds: [...selected], count: selected.size } : { filters, count: total })} />
+        {tail}
+        <div className="pe-toolbar flex items-center overflow-hidden rounded-xl border border-neutral-700 bg-neutral-900">
+          <TB icon="minus" label="" title="Smaller tiles" onClick={() => setTile((t) => Math.max(90, t - 30))} />
+          <TB icon="plus" label="" title="Bigger tiles" onClick={() => setTile((t) => Math.min(360, t + 30))} />
+        </div>
+      </TopBar>
+      {notice && (
+        <div className="absolute bottom-4 left-4 z-30 flex max-w-md items-center gap-2 rounded-xl bg-neutral-900 px-3 py-2 text-xs text-emerald-400 shadow-lg ring-1 ring-neutral-700">
+          <span className="flex-1">{notice}</span><button onClick={() => setNotice(null)}><Icon name="x" className="h-3.5 w-3.5" /></button></div>
+      )}
+      {sel && (
+        // Floating bar while photos are selected
+        <div className="pe-selbar absolute bottom-5 left-1/2 z-40 flex -translate-x-1/2 items-center gap-1 rounded-2xl border border-neutral-700 bg-neutral-900/95 p-1.5 text-sm shadow-2xl backdrop-blur">
+          <button className="flex items-center gap-1.5 rounded-xl px-3 py-1.5 font-medium text-sky-300 hover:bg-neutral-800" title="Clear the selection (Esc)" onClick={clearSel}>
+            <Icon name="x" />{selected.size.toLocaleString()} selected</button>
+          <span className="mx-1 h-6 w-px bg-neutral-700" />
+          <CreateMenu up count={selected.size} selection
+            onPlay={() => { setPlay(true); setOpen(0); }}
+            onVideo={() => setCreate({ mediaIds: [...selected], count: selected.size, kind: "slideshow" })}
+            onCollage={() => setCreate({ mediaIds: [...selected], count: selected.size, kind: "collage" })}
+            onOrganize={noOrganize ? undefined : () => setOrganize({ mediaIds: [...selected], count: selected.size })} />
+          <span className="relative">
+            <TB2 icon="album" label="Add to album" onClick={() => setAlbumPick((v) => !v)} />
+            {albumPick && <div className="absolute bottom-full mb-2"><AlbumPicker ids={[...selected]} onDone={(msg) => { setAlbumPick(false); setNotice(msg); onAlbumChanged?.(); }} /></div>}
+          </span>
+          <TB2 icon="heart" label="Favourite" active={allFav} onClick={() => mark({ favorite: !allFav })} />
+          <TB2 icon={filters.show === "archive" ? "unarchive" : "archive"} label={filters.show === "archive" ? "Unarchive" : "Archive"}
+            onClick={() => mark({ archived: filters.show !== "archive" })} />
+          <MoreMenu items={[
+            { label: "Edit…", hint: "Rotate, auto fix, filter or resize", fn: () => setEditIds([...selected]) },
+            { label: "Print…", hint: "Print, or a contact sheet (PDF)", fn: () => setPrintIds([...selected]) },
+            ...(filters.albumId != null ? [{ label: "Remove from album", hint: "The photos themselves stay", fn: async () => {
+              const r = await post<{ removed: number }>(`/api/albums/${filters.albumId}/remove`, { media_ids: [...selected] });
+              setNotice(`Removed ${r.removed} from the album (the photos themselves are untouched).`);
+              clearSel(); setReload((x) => x + 1); onAlbumChanged?.();
+            } }] : []),
+          ]} />
+        </div>
+      )}
       {above && (
         <div className={`shrink-0 overflow-hidden transition-all duration-300 ${folded ? "max-h-0 opacity-0" : "max-h-72 opacity-100"}`}>{above}</div>
       )}
@@ -339,7 +377,7 @@ export default function PhotoGrid({ filters, sectionNote, emptyText = "No photos
         <div ref={scrollRef} className="absolute inset-y-0 left-0 right-10 overflow-y-auto"
           onScroll={above ? (e) => setFolded((e.currentTarget.scrollTop) > 40) : undefined}>
           {error && <p className="p-4 text-red-400 text-sm">{error}</p>}
-          {buckets && total === 0 && <p className="p-6 text-neutral-500">{emptyText}</p>}
+          {buckets && total === 0 && <div className="p-6 text-neutral-500">{emptyText}{emptyAction && <button className="ml-3 rounded-lg bg-neutral-800 px-3 py-1 text-sm text-neutral-200 hover:bg-neutral-700" onClick={emptyAction.fn}>{emptyAction.label}</button>}</div>}
           <div style={{ height: scrollH, position: "relative" }}>
             {vitems.map((v) => {
               const row = rows[v.index];
@@ -387,8 +425,10 @@ export default function PhotoGrid({ filters, sectionNote, emptyText = "No photos
                       const g = sectionStart[row.s] + row.start + k;
                       return (
                         <div key={k} style={{ width: w, height: row.h }} className="shrink-0">
-                          {m ? <Tile m={m} selected={selected.has(m.id)} selecting={selecting} onTick={() => tickSel(m.id)}
-                            onOpen={() => (selecting ? toggleSel(m.id) : setOpen(g))} />
+                          {m ? <Tile m={m} selected={selected.has(m.id)} selecting={selecting} onTick={(shift) => tickSel(m.id, g, shift)}
+                          onDragStart={() => { dragTick.current = !selected.has(m.id); }}
+                          onDragOver={() => { if (dragTick.current !== null && selected.has(m.id) !== dragTick.current) toggleSel(m.id); }}
+                            onOpen={(shift) => (selecting ? tickSel(m.id, g, shift) : setOpen(g))} />
                             : <div className="h-full w-full bg-neutral-900" />}
                         </div>
                       );
@@ -404,8 +444,10 @@ export default function PhotoGrid({ filters, sectionNote, emptyText = "No photos
                     const g = sectionStart[row.s] + row.start + k;
                     return (
                       <div key={k} style={{ width: cell, height: cell }} className="p-px">
-                        {m ? <Tile m={m} selected={selected.has(m.id)} selecting={selecting} onTick={() => tickSel(m.id)}
-                          onOpen={() => (selecting ? toggleSel(m.id) : setOpen(g))} />
+                        {m ? <Tile m={m} selected={selected.has(m.id)} selecting={selecting} onTick={(shift) => tickSel(m.id, g, shift)}
+                          onDragStart={() => { dragTick.current = !selected.has(m.id); }}
+                          onDragOver={() => { if (dragTick.current !== null && selected.has(m.id) !== dragTick.current) toggleSel(m.id); }}
+                          onOpen={(shift) => (selecting ? tickSel(m.id, g, shift) : setOpen(g))} />
                           : <div className="h-full w-full bg-neutral-900" />}
                       </div>
                     );
@@ -417,16 +459,22 @@ export default function PhotoGrid({ filters, sectionNote, emptyText = "No photos
         </div>
         {years.length > 0 && (
           <div className="absolute right-0 top-0 bottom-0 w-10 select-none cursor-pointer border-l border-neutral-900"
-            onMouseDown={(e) => scrubTo(e.clientY, e.currentTarget)}
+            onMouseDown={(e) => { scrubTo(e.clientY, e.currentTarget); setScrubbing(true); }}
+            onMouseUp={() => setScrubbing(false)} onMouseLeave={() => setScrubbing(false)}
             onMouseMove={(e) => e.buttons === 1 && scrubTo(e.clientY, e.currentTarget)}>
             {years.map((y, i) => {
               const prev = years[i - 1];
-              if (prev && (y.frac - prev.frac) < 0.025) return null;  // avoid overlapping labels
+              const cur = currentMonth?.slice(0, 4) === y.label;
+              if (prev && (y.frac - prev.frac) < 0.025 && !cur) return null;  // avoid overlapping labels
               return (
-                <div key={y.label} className="absolute right-1 text-[10px] text-neutral-500 hover:text-white"
+                <div key={y.label} className={`absolute right-1 rounded px-0.5 text-[10px] hover:text-white ${cur ? "bg-sky-950 font-semibold text-sky-300" : "text-neutral-500"}`}
                   style={{ top: `calc(${y.frac * 100}% )` }}>{y.label}</div>
               );
             })}
+            {scrubbing && currentMonth && (
+              <div className="pointer-events-none absolute right-11 top-2 whitespace-nowrap rounded-lg bg-sky-600 px-2 py-1 text-xs font-semibold text-white shadow-lg">
+                {monthLabel(currentMonth)}</div>
+            )}
           </div>
         )}
       </div>
@@ -477,12 +525,13 @@ function AlbumPicker({ ids, onDone }: { ids: number[]; onDone: (msg: string) => 
   );
 }
 
-function Tile({ m, onOpen, selected, selecting, onTick }: {
-  m: Media; onOpen: () => void; selected: boolean; selecting: boolean; onTick: () => void;
+function Tile({ m, onOpen, selected, selecting, onTick, onDragStart, onDragOver }: {
+  m: Media; onOpen: (shift: boolean) => void; selected: boolean; selecting: boolean; onTick: (shift: boolean) => void;
+  onDragStart: () => void; onDragOver: () => void;
 }) {
   return (
     <button className="pe-tile group relative block h-full w-full overflow-hidden bg-neutral-900 focus:outline focus:outline-2 focus:outline-sky-500"
-      onClick={onOpen} title={m.filename}>
+      onClick={(e) => onOpen(e.shiftKey)} onPointerEnter={(e) => e.buttons === 1 && onDragOver()} title={m.filename}>
       {m.has_thumb ? (
         <img src={thumbUrl(m.id, m.size)} loading="lazy" decoding="async" draggable={false} className="h-full w-full object-cover" />
       ) : (
@@ -495,7 +544,8 @@ function Tile({ m, onOpen, selected, selecting, onTick }: {
       {!!m.favorite && <span className="absolute bottom-1 left-1 text-rose-400 drop-shadow"><Icon name="heart" filled className="h-4 w-4" /></span>}
       {!selecting && <span className="pointer-events-none absolute inset-x-0 top-0 h-10 bg-gradient-to-b from-black/40 to-transparent opacity-0 transition-opacity group-hover:opacity-100" />}
       <span role="checkbox" aria-checked={selected} title={selected ? "Unselect" : "Select"}
-        onClick={(e) => { e.stopPropagation(); onTick(); }}
+        onClick={(e) => { e.stopPropagation(); onTick(e.shiftKey); }}
+        onPointerDown={(e) => { if (!e.shiftKey) { e.stopPropagation(); onDragStart(); } }}
         className={`absolute right-1 top-1 grid h-6 w-6 place-items-center rounded-full border-2 text-[12px] transition-opacity ${selected
           ? "border-sky-400 bg-sky-500 text-white" : "border-white/90 bg-black/30 text-transparent hover:bg-black/50 hover:text-white/80"} ${selecting ? "" : "opacity-0 group-hover:opacity-100"}`}>
         ✓
@@ -514,5 +564,40 @@ function TB({ icon, label, title, onClick, disabled, active }: {
       className={`flex items-center gap-1.5 border-r border-neutral-700 px-3 py-1.5 last:border-r-0 hover:bg-neutral-800 disabled:opacity-40 ${active ? "text-rose-400" : "text-neutral-200"}`}>
       <Icon name={icon} filled={active && icon === "heart"} />{label && <span>{label}</span>}
     </button>
+  );
+}
+
+// A button of the floating selection bar.
+function TB2({ icon, label, onClick, active }: { icon: IconName; label: string; onClick: () => void; active?: boolean }) {
+  return (
+    <button onClick={onClick} className={`flex items-center gap-1.5 whitespace-nowrap rounded-xl px-3 py-1.5 hover:bg-neutral-800 ${active ? "text-rose-400" : "text-neutral-200"}`}>
+      <Icon name={icon} filled={active && icon === "heart"} />{label}
+    </button>
+  );
+}
+
+export function MoreMenu({ items, up = true }: { items: { label: string; hint?: string; fn: () => void; danger?: boolean }[]; up?: boolean }) {
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false); };
+    window.addEventListener("mousedown", close);
+    return () => window.removeEventListener("mousedown", close);
+  }, [open]);
+  return (
+    <div ref={box} className="relative">
+      <button className="rounded-xl px-3 py-1.5 text-neutral-200 hover:bg-neutral-800" title="More" onClick={() => setOpen((o) => !o)}>⋯</button>
+      {open && (
+        <div className={`absolute right-0 z-50 w-60 rounded-xl border border-neutral-700 bg-neutral-900 p-1.5 text-sm shadow-xl ${up ? "bottom-full mb-2" : "top-full mt-2"}`}>
+          {items.map((it) => (
+            <button key={it.label} onClick={() => { setOpen(false); it.fn(); }}
+              className={`block w-full rounded-lg px-3 py-1.5 text-left hover:bg-neutral-800 ${it.danger ? "text-red-400" : ""}`}>
+              {it.label}{it.hint && <span className="block text-xs text-neutral-500">{it.hint}</span>}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }

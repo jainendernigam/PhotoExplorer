@@ -2,7 +2,10 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Main window and the second-screen presenter window",
-  "windows": ["main", "present"],
+  "windows": [
+    "main",
+    "present"
+  ],
   "permissions": [
     "core:default",
     "dialog:allow-open",
@@ -12,6 +15,13 @@
     "core:window:allow-set-focus",
     "core:window:allow-unminimize",
     "core:window:allow-close",
-    "core:window:allow-show"
+    "core:window:allow-show",
+    "core:window:allow-maximize",
+    "core:window:allow-is-maximized",
+    "core:window:allow-is-minimized",
+    "core:window:allow-set-size",
+    "core:window:allow-outer-size",
+    "core:window:allow-outer-position",
+    "core:window:allow-current-monitor"
   ]
 }

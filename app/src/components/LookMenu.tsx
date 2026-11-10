@@ -1,6 +1,7 @@
 // The "Look" button at the top right: theme, layout, the opening animation and the Explorer "Open with" setting.
 import { useEffect, useRef, useState } from "react";
 import { LAYOUTS, setAppearance, SWATCH, THEMES, useAppearance } from "../lib/appearance";
+import { post } from "../api";
 
 export type OpenWith = { available: boolean; enabled: boolean; reason: string | null };
 
@@ -54,6 +55,8 @@ export default function LookMenu({ openWith, onOpenWith }: {
           <div className="space-y-1 border-t border-neutral-800 pt-2 text-xs text-neutral-400">
             <label className="flex items-center justify-between gap-2">Memories strip in Library
               <input type="checkbox" checked={look.strip} onChange={(e) => setAppearance({ strip: e.target.checked })} /></label>
+            <div className="flex items-center justify-between gap-2" title="Add your favourite songs here; memories will play them">My music
+              <button className="rounded bg-neutral-800 px-2 py-0.5 text-neutral-200 hover:bg-neutral-700" onClick={() => post("/api/music/open-folder").catch(() => {})}>Open folder</button></div>
             <label className="flex items-center justify-between gap-2">Opening animation
               <input type="checkbox" checked={look.intro} onChange={(e) => setAppearance({ intro: e.target.checked })} /></label>
             <label className={`flex items-center justify-between gap-2 ${look.intro ? "" : "opacity-40"}`}>Opening tune

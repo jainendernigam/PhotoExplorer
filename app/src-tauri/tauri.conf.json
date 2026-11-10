@@ -11,7 +11,7 @@
   },
   "app": {
     "windows": [
-      { "title": "Photo Explorer", "width": 1400, "height": 900, "minWidth": 900, "minHeight": 600 }
+      { "title": "Photo Explorer", "width": 1280, "height": 800, "minWidth": 900, "minHeight": 600, "center": true }
     ],
     "security": { "csp": null }
   },

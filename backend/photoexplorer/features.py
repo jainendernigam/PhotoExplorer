@@ -234,7 +234,7 @@ def register(app: FastAPI, db, settings, scanner) -> None:
     def face_models():
         return {"current": arcface.current(db.conn, settings.data_dir), "installed": installed_kinds(),
                 "packs": {k: {"label": v["label"], "size_mb": round(v["size"] / 1e6)} for k, v in arcface.PACKS.items()},
-                "downloads": {k: downloads.get(f"face-{k}") for k in arcface.PACKS}}
+                "downloads": {k: downloads.get(f"face-{k}") for k in arcface.PACKS}, "runtime_ok": arcface.runtime_ok()}
 
     def installed_kinds():
         return ["sface"] + arcface.installed(settings.data_dir)

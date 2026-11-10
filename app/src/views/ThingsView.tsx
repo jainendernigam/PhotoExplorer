@@ -1,6 +1,7 @@
 // Things: photos sorted by what is in them (screenshots, selfies, documents,
 // receipts, dogs, cats), pets grouped by look, and the switch that sets up
 // search by content (a free AI model that runs on this PC).
+import TopBar from "../lib/topbar";
 import { useCallback, useEffect, useState } from "react";
 import { api, Category, Filters, markMedia, PetGroup, post, SmartStatus, thumbUrl } from "../api";
 import PhotoGrid from "../components/PhotoGrid";
@@ -55,7 +56,7 @@ export default function ThingsView({ busy, refreshKey }: { busy: boolean; refres
   return (
     <div className="h-full space-y-7 overflow-y-auto p-5">
       <header className="flex items-center gap-3">
-        <h1 className="text-xl font-semibold">Things</h1>
+        <TopBar><span className="font-semibold">Things</span></TopBar>
         <span className="text-sm text-neutral-400">Photos sorted by what is in them</span>
       </header>
       {msg && <p className="text-sm text-emerald-400">{msg} <button onClick={() => setMsg(null)}>✕</button></p>}

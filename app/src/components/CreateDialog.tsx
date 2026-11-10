@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { CollagePreview, SlideshowPreview } from "./CreatePreview";
 import { api, Filters, filtersForExport, musicUrl, Person, pickAudioFile, pickFolder, post, Theme, Track } from "../api";
 
-export type CreateSource = { mediaIds?: number[]; filters?: Filters; count: number };
+export type CreateSource = { mediaIds?: number[]; filters?: Filters; count: number; kind?: "slideshow" | "collage" };
 
 const TRANSITIONS = [
   ["fade", "Fade"], ["dissolve", "Dissolve"], ["smoothleft", "Slide"], ["circleopen", "Circle"],
@@ -37,7 +37,7 @@ const BASE = { seconds_per_photo: 3.5, transition: "fade", ken_burns: true, capt
 export default function CreateDialog({ source, onClose, onStarted }: {
   source: CreateSource; onClose: () => void; onStarted: (msg: string) => void;
 }) {
-  const [kind, setKind] = useState<"slideshow" | "collage">("slideshow");
+  const [kind, setKind] = useState<"slideshow" | "collage">(source.kind ?? "slideshow");
   const [people, setPeople] = useState<Person[]>([]);
   const onlyPerson = source.filters?.persons?.length === 1 ? source.filters.persons[0] : undefined;
   const [title, setTitle] = useState("");

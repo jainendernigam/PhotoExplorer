@@ -14,13 +14,15 @@ import GoogleView from "./views/GoogleView";
 import LibraryView from "./views/LibraryView";
 import MemoriesView from "./views/MemoriesView";
 import PeopleView from "./views/PeopleView";
-import TimelineView from "./views/TimelineView";
+import { setTopBarSlot } from "./lib/topbar";
+import { LibraryPreset, onOpenLibrary, onOpenPerson } from "./lib/nav";
+import { restoreWindow } from "./lib/windowState";
 import SetupView from "./views/SetupView";
 import UpdatesView from "./views/UpdatesView";
 import { setAppearance, useAppearance } from "./lib/appearance";
 import LookMenu, { OpenWith } from "./components/LookMenu";
 
-type View = "library" | "timeline" | "people" | "places" | "things" | "albums" | "duplicates" | "memories" | "folders" | "google" | "updates";
+type View = "library" | "people" | "places" | "things" | "albums" | "duplicates" | "memories" | "folders" | "google" | "updates";
 // Sources the user switched off in the sidebar (kept between runs; new sources start switched on).
 const HIDDEN_KEY = "pe.hiddenSources";
 function loadHidden(): number[] {
@@ -30,7 +32,6 @@ function loadHidden(): number[] {
 // Small line icons for the Gallery layout's sidebar (24x24, stroke).
 const ICONS: Record<View, string> = {
   library: "M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z",
-  timeline: "M12 7v5l3 2M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z",
   people: "M16 19c0-2.2-1.8-4-4-4s-4 1.8-4 4M12 12a3 3 0 1 0 0-6 3 3 0 0 0 0 6z",
   places: "M12 21s-6-5.5-6-11a6 6 0 0 1 12 0c0 5.5-6 11-6 11zM12 12.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z",
   things: "M4 4h7v7H4zM17.5 4a3.5 3.5 0 1 1 0 7 3.5 3.5 0 0 1 0-7zM7.5 13l4 7h-8zM14 14h6v6h-6z",
@@ -44,7 +45,6 @@ const ICONS: Record<View, string> = {
 
 const NAV: { id: View; label: string }[] = [
   { id: "library", label: "Library" },
-  { id: "timeline", label: "Timeline" },
   { id: "people", label: "People" },
   { id: "places", label: "Places" },
   { id: "things", label: "Things" },
@@ -72,6 +72,20 @@ export default function App() {
   const [openWith, setOpenWith] = useState<OpenWith | null>(null);
   const gallery = look.layout === "gallery";
   const closed = look.sideClosed;
+  const [preset, setPreset] = useState<LibraryPreset | undefined>(undefined);   // filters handed to Library
+  const [personId, setPersonId] = useState<number | undefined>(undefined);
+  const [suggest, setSuggest] = useState(0);                                     // faces waiting for "Is this X?"
+  useEffect(() => { restoreWindow(); }, []);
+  useEffect(() => {
+    if (!ready) return;
+    const get = () => api<{ suggestions?: number }>("/api/faces/status").then((r) => setSuggest(r.suggestions ?? 0)).catch(() => {});
+    get();
+    const t = setInterval(get, 30000);
+    return () => clearInterval(t);
+  }, [ready, refreshKey, view]);
+  useEffect(() => onOpenLibrary((p) => { setPreset({ ...p }); setView("library"); }), []);
+  useEffect(() => onOpenPerson((id) => { setPersonId(id); setView("people"); }), []);
+  useEffect(() => { if ((view as string) === "timeline") setView("library"); }, [view]);
   const [intro, setIntro] = useState(() => look.intro);   // the opening animation, once per start
 
   const refresh = useCallback(async () => {
@@ -160,12 +174,12 @@ export default function App() {
                 ? "bg-sky-950 font-semibold text-sky-300" : "text-neutral-300 hover:bg-neutral-900"}`}>
               <svg viewBox="0 0 24 24" className="h-5 w-5 shrink-0" fill="none" stroke="currentColor" strokeWidth={1.8}
                 strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={ICONS[n.id]} /></svg>
-              {n.label}
+              {n.label}{n.id === "people" && suggest > 0 && <span className="ml-auto rounded-full bg-amber-500 px-1.5 text-[11px] font-semibold text-black" title="Faces waiting for your answer: Is this …?">{suggest > 99 ? "99+" : suggest}</span>}
             </button>
           ) : (
             <button key={n.id} onClick={() => setView(n.id)}
-              className={`block w-full rounded px-3 py-1.5 text-left text-sm ${view === n.id ? "bg-neutral-800 text-white" : "text-neutral-400 hover:bg-neutral-900"}`}>
-              {n.label}
+              className={`flex w-full rounded px-3 py-1.5 text-left text-sm ${view === n.id ? "bg-neutral-800 text-white" : "text-neutral-400 hover:bg-neutral-900"}`}>
+              {n.label}{n.id === "people" && suggest > 0 && <span className="ml-auto rounded-full bg-amber-500 px-1.5 text-[11px] font-semibold text-black" title="Faces waiting for your answer: Is this …?">{suggest > 99 ? "99+" : suggest}</span>}
             </button>
           ))}
         </nav>
@@ -175,7 +189,9 @@ export default function App() {
       </aside>
       )}
       <div className="flex min-w-0 flex-1 flex-col">
-      <div className="flex h-11 shrink-0 items-center justify-end gap-3 px-3">
+      {/* One top bar for every section: its search, filters and actions, then Look (always last). */}
+      <div className="pe-topbar flex min-h-[3.25rem] shrink-0 flex-wrap items-center gap-2 border-b border-neutral-900 px-3 py-2 text-sm">
+        <div ref={setTopBarSlot} className="flex min-w-0 flex-1 flex-wrap items-center gap-2" />
         {closed && error && <span className="truncate text-xs text-red-400">{error}</span>}
         <LookMenu openWith={openWith} onOpenWith={(enable) => post<OpenWith>("/api/system/open-with", { enable })
           .then(setOpenWith).catch((er) => setError(String(er)))} />
@@ -183,11 +199,10 @@ export default function App() {
       <main key={scopeKey} className="min-h-0 min-w-0 flex-1">
         {!ready ? (
           <p className="p-6 text-neutral-500">{error ? "Could not reach the engine." : "Starting the engine…"}</p>
-        ) : view === "library" ? <LibraryView refreshKey={refreshKey} />
-          : view === "timeline" ? <TimelineView key={refreshKey} />
+        ) : view === "library" ? <LibraryView refreshKey={refreshKey} preset={preset} />
           : view === "places" ? <PlacesView refreshKey={refreshKey} />
           : view === "things" ? <ThingsView busy={busy} refreshKey={refreshKey} />
-          : view === "people" ? <PeopleView busy={busy} scanState={scan?.state} onChanged={refresh} />
+          : view === "people" ? <PeopleView busy={busy} scanState={scan?.state} onChanged={refresh} openId={personId} />
           : view === "duplicates" ? <DuplicatesView busy={busy && scan?.state !== "faces" && scan?.state !== "clustering"} onChanged={refresh} />
           : view === "albums" ? <AlbumsView key={refreshKey} />
           : view === "memories" ? <MemoriesView />

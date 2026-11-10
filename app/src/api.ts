@@ -251,7 +251,9 @@ export type FaceItem = {
 export type FacesStatus = {
   faces: number; photos: number; unnamed_clusters: number; named_faces: number;
   photos_todo: number; persons: number; available: boolean; missing: string[]; ungrouped: number;
+  photos_failed?: number; suggestions?: number;
 };
+export type Suggestion = { face_id: number; person_id: number; person_name: string; score: number; media_id: number };
 export type ExportJob = {
   id: number; kind: "slideshow" | "collage"; title: string | null;
   status: "queued" | "running" | "done" | "error" | "cancelled";
@@ -363,8 +365,9 @@ export type SmartStatus = { available: boolean; missing: string[]; todo: number;
 export type Category = { tag: string; label: string; count: number; cover: number };
 export type PetGroup = { id?: number; name?: string; cluster?: number; species: string; photos: number; cover: number };
 export type Place = { id: number; name: string; state: string; country: string; lat: number; lon: number; count: number; cover: number };
-export type MemoryCard = { key: string; kind: string; title: string; subtitle: string; cover: number | null; media_ids: number[] };
+export type MemoryCard = { key: string; kind: string; title: string; subtitle: string; cover: number | null; media_ids: number[];
+  music?: { id: string; title: string; seconds: number | null } | null };
 export type FaceModels = {
-  current: string; installed: string[];
+  current: string; installed: string[]; runtime_ok?: boolean;
   packs: Record<string, { label: string; size_mb: number }>; downloads: Record<string, Download>;
 };

@@ -5,7 +5,7 @@
 // double-click, + / - / 0 keys; drag to move around a zoomed photo. L starts a slideshow,
 // H adds to (or removes from) favourites.
 import { useEffect, useRef, useState } from "react";
-import { api, bigPreviewUrl, markMedia, EditInfo, Face, fileUrl, FramesInfo, frameUrl, Media, MediaDetail, Person, post, previewUrl } from "../api";
+import { api, bigPreviewUrl, chipUrl, markMedia, EditInfo, Face, fileUrl, FramesInfo, frameUrl, Media, MediaDetail, Person, post, previewUrl } from "../api";
 import EditDialog from "./EditDialog";
 import Slideshow from "./Slideshow";
 import PrintDialog from "./PrintDialog";
@@ -13,6 +13,7 @@ import { ColorPicker, DetailsBlock, FramesBar, useDetails } from "./ViewerTools"
 import { closePresenter, listen, openPresenter, send } from "../lib/present";
 import { fmtBytes, fmtTaken } from "../lib/format";
 import Icon from "../lib/icons";
+import { openPerson } from "../lib/nav";
 
 export default function Viewer({ index, total, getItem, onIndex, onClose, onChanged, slideshow = false }: {
   index: number;
@@ -234,7 +235,8 @@ export default function Viewer({ index, total, getItem, onIndex, onClose, onChan
           <FaceEditor face={editing} onClose={() => setEditing(null)} onDone={() => { setEditing(null); setReload((r) => r + 1); }} />
         )}
       </div>
-      {showInfo && detail && <InfoPanel d={detail} edits={edits}><DetailsBlock d={details} /></InfoPanel>}
+      {showInfo && detail && <InfoPanel d={detail} edits={edits}
+        onFace={(f) => (f.person_id != null ? (onClose(), openPerson(f.person_id)) : setEditing(f))}><DetailsBlock d={details} /></InfoPanel>}
       {show && <Slideshow index={index} total={total} getItem={getItem} onIndex={onIndex} onStop={() => (slideshow ? onClose() : setShow(false))} />}
       {printing && item && <PrintDialog mediaIds={[item.id]} onClose={() => setPrinting(false)} />}
       {edit && item && <EditDialog mediaIds={[item.id]} onClose={() => setEdit(false)}
@@ -298,7 +300,7 @@ function useZoom(resetKey: unknown) {
   };
 }
 
-function InfoPanel({ d, edits, children }: { d: MediaDetail; edits: EditInfo | null; children?: React.ReactNode }) {
+function InfoPanel({ d, edits, children, onFace }: { d: MediaDetail; edits: EditInfo | null; children?: React.ReactNode; onFace: (f: Face) => void }) {
   const [place, setPlace] = useState<{ name: string; state: string; country: string; km: number } | null>(null);
   const [note, setNote] = useState(d.note ?? "");
   const [saved, setSaved] = useState(false);
@@ -321,8 +323,22 @@ function InfoPanel({ d, edits, children }: { d: MediaDetail; edits: EditInfo | n
       {row("Camera", [d.camera_make, d.camera_model].filter(Boolean).join(" "))}
       {row("Lens", d.lens)}
       {place && row("Place", [place.name, place.state, place.country].filter(Boolean).join(", ") + (place.km > 25 ? ` (${Math.round(place.km)} km away)` : ""))}
+      {d.gps_lat != null && d.gps_lon != null && <MiniMap lat={d.gps_lat} lon={d.gps_lon} />}
       {row("Location", d.gps_lat != null && d.gps_lon != null ? `${d.gps_lat.toFixed(5)}, ${d.gps_lon.toFixed(5)}` : null)}
-      {d.faces.length > 0 && row("People", d.faces.map((f) => f.person ?? "unnamed").join(", "))}
+      {d.faces.length > 0 && (
+        <div>
+          <div className="text-[11px] uppercase text-neutral-500">People</div>
+          <div className="mt-1 flex flex-wrap gap-2">
+            {d.faces.map((f) => (
+              <button key={f.id} onClick={() => onFace(f)} title={f.person ? `Open ${f.person}` : "Who is this?"}
+                className="flex w-14 flex-col items-center gap-0.5 text-[11px] text-neutral-300 hover:text-white">
+                <img src={chipUrl(f.id)} alt="" className="h-11 w-11 rounded-full object-cover ring-1 ring-neutral-700" />
+                <span className="w-full truncate text-center">{f.person ?? "?"}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       <div>
         <div className="flex text-[11px] uppercase text-neutral-500"><span className="flex-1">Description</span>{saved && <span className="normal-case text-emerald-400">saved</span>}</div>
         <textarea value={note} onChange={(e) => { setNote(e.target.value); setSaved(false); }} onBlur={saveNote} rows={3}
@@ -372,4 +388,37 @@ function FaceEditor({ face, onClose, onDone }: { face: Face; onClose: () => void
       {err && <div className="text-xs text-red-400">{err}</div>}
     </div>
   );
+}
+
+// A small offline map (Natural Earth outlines) around where a photo was taken.
+let worldOnce: Promise<{ countries: { r: number[][] }[] }> | null = null;
+function MiniMap({ lat, lon }: { lat: number; lon: number }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    worldOnce ??= api<{ countries: { r: number[][] }[] }>("/api/map/world");
+    let alive = true;
+    worldOnce.then((w) => {
+      const c = ref.current;
+      if (!alive || !c) return;
+      const W = 248, H = 130, dpr = window.devicePixelRatio || 1, z = 18;   // pixels per degree
+      c.width = W * dpr; c.height = H * dpr;
+      const x = c.getContext("2d")!;
+      x.setTransform(dpr, 0, 0, dpr, 0, 0);
+      x.fillStyle = "#0d1424"; x.fillRect(0, 0, W, H);
+      x.fillStyle = "#1f2a40"; x.strokeStyle = "#3a4a6b"; x.lineWidth = 0.8;
+      const px = (lo: number) => W / 2 + (lo - lon) * z, py = (la: number) => H / 2 - (la - lat) * z;
+      for (const ct of w.countries) {
+        x.beginPath();
+        for (const ring of ct.r) {
+          for (let i = 0; i < ring.length; i += 2) (i ? x.lineTo : x.moveTo).call(x, px(ring[i]), py(ring[i + 1]));
+          x.closePath();
+        }
+        x.fill(); x.stroke();
+      }
+      x.fillStyle = "#f43f5e"; x.strokeStyle = "#fff"; x.lineWidth = 2;
+      x.beginPath(); x.arc(W / 2, H / 2, 6, 0, Math.PI * 2); x.fill(); x.stroke();
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, [lat, lon]);
+  return <canvas ref={ref} style={{ width: 248, height: 130 }} className="rounded-lg" />;
 }

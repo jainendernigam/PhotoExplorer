@@ -12,55 +12,66 @@ type Pick = { title: string; place?: number; bbox?: string };
 
 let worldCache: World | null = null;
 
+const MAP_KEY = "pe.places.map";
+const ALL = "-90,-180,90,180";   // every photo with a location
+
 export default function PlacesView({ refreshKey }: { refreshKey: number }) {
   const [world, setWorld] = useState<World | null>(worldCache);
   const [points, setPoints] = useState<number[][]>([]);
   const [placeList, setPlaceList] = useState<Place[]>([]);
   const [pick, setPick] = useState<Pick | null>(null);
+  const [mapOpen, setMapOpen] = useState(() => {
+    try { const v = localStorage.getItem(MAP_KEY); if (v) return v === "1"; } catch { /* fine */ }
+    return window.innerWidth >= 1100;     // narrow windows start with the map hidden
+  });
+  const setMap = (v: boolean) => { setMapOpen(v); try { localStorage.setItem(MAP_KEY, v ? "1" : "0"); } catch { /* fine */ } };
   useEffect(() => {
     if (!worldCache) api<World>("/api/map/world").then((w) => { worldCache = w; setWorld(w); }).catch(() => {});
     api<number[][]>("/api/places/points").then(setPoints).catch(() => {});
     api<Place[]>("/api/places?limit=300").then(setPlaceList).catch(() => {});
   }, [refreshKey]);
 
-  if (pick) {
-    return (
-      <div className="flex h-full flex-col">
-        <div className="flex items-center gap-3 border-b border-neutral-800 px-4 py-2">
-          <button className="flex items-center gap-1 text-sm text-neutral-400 hover:text-white" onClick={() => setPick(null)}>
-            <Icon name="chevronLeft" /> Places</button>
-          <span className="flex items-center gap-1.5 font-semibold"><Icon name="pin" className="h-4 w-4 text-rose-400" />{pick.title}</span>
-        </div>
-        <div className="min-h-0 flex-1"><PhotoGrid filters={pick.place != null ? { place: pick.place } : { bbox: pick.bbox }} /></div>
-      </div>
-    );
-  }
+  const head = (
+    <>
+      <span className="flex items-center gap-1.5 font-semibold"><Icon name="pin" className="h-4 w-4 text-rose-400" />{pick ? pick.title : "All places"}</span>
+      {pick && <button className="text-xs text-sky-400 hover:underline" onClick={() => setPick(null)}>Show all places</button>}
+      <span className="text-xs text-neutral-500">{placeList.length} places</span>
+    </>
+  );
+  const chips = (
+    <div className="flex gap-2 overflow-x-auto px-3 py-2">
+      {placeList.slice(0, 60).map((p) => (
+        <button key={p.id} onClick={() => setPick({ title: `${p.name}${p.country ? `, ${p.country}` : ""}`, place: p.id })}
+          className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1 text-[13px] ${pick?.place === p.id
+            ? "border-sky-500 bg-sky-950 text-sky-300" : "border-neutral-700 text-neutral-300 hover:border-neutral-500"}`}>
+          {p.name}<span className="text-neutral-500">{p.count.toLocaleString()}</span></button>
+      ))}
+    </div>
+  );
 
+  if (!points.length && !placeList.length) {
+    return <p className="p-6 text-neutral-500">No photos with a location yet. Phones usually save where a photo was taken.</p>;
+  }
   return (
-    <div className="flex h-full min-h-0 flex-col gap-3 p-4">
-      <header className="flex items-center gap-3">
-        <h1 className="text-xl font-semibold">Places</h1>
-        <span className="text-sm text-neutral-400">{points.length.toLocaleString()} photos with a location · {placeList.length} places</span>
-      </header>
-      <div className="min-h-0 flex-[3] overflow-hidden rounded-2xl border border-neutral-800">
-        {world ? <WorldMap world={world} points={points} places={placeList} onPick={setPick} />
-          : <div className="grid h-full place-items-center text-sm text-neutral-500">Loading the map…</div>}
-      </div>
-      <div className="min-h-0 flex-[2] overflow-y-auto">
-        {placeList.length === 0 && <p className="text-sm text-neutral-500">No photos with a location yet. Phones usually save where a photo was taken.</p>}
-        <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))" }}>
-          {placeList.map((p) => (
-            <button key={p.id} onClick={() => setPick({ title: `${p.name}${p.country ? `, ${p.country}` : ""}`, place: p.id })}
-              className="group overflow-hidden rounded-xl bg-neutral-900 text-left ring-1 ring-neutral-800 hover:ring-sky-500">
-              <img src={thumbUrl(p.cover)} alt="" loading="lazy" className="aspect-[4/3] w-full object-cover transition-transform group-hover:scale-105" />
-              <div className="px-2 py-1.5">
-                <div className="truncate text-sm font-medium">{p.name}</div>
-                <div className="truncate text-xs text-neutral-500">{[p.state, p.country].filter(Boolean).join(", ")} · {p.count.toLocaleString()}</div>
-              </div>
-            </button>
-          ))}
+    <div className="flex h-full min-h-0">
+      <div className="flex min-w-0 flex-1 flex-col">
+        {!mapOpen && chips}
+        <div className="min-h-0 flex-1">
+          <PhotoGrid key={`${pick?.place ?? ""}-${pick?.bbox ?? ""}-${refreshKey}`} head={head}
+            filters={pick?.place != null ? { place: pick.place } : { bbox: pick?.bbox ?? ALL }} />
         </div>
       </div>
+      {mapOpen ? (
+        <div className="relative w-[42%] min-w-[20rem] shrink-0 border-l border-neutral-800">
+          {world ? <WorldMap world={world} points={points} places={placeList} onPick={setPick} />
+            : <div className="grid h-full place-items-center text-sm text-neutral-500">Loading the map…</div>}
+          <button className="absolute left-3 top-3 rounded-xl border border-neutral-700 bg-neutral-900 px-2.5 py-1 text-neutral-300 shadow hover:bg-neutral-800"
+            title="Hide the map" onClick={() => setMap(false)}>«</button>
+        </div>
+      ) : (
+        <button className="flex w-10 shrink-0 flex-col items-center gap-2 border-l border-neutral-800 pt-3 text-neutral-400 hover:bg-neutral-900 hover:text-neutral-100"
+          title="Show the map" onClick={() => setMap(true)}><Icon name="map" className="h-5 w-5" />»</button>
+      )}
     </div>
   );
 }

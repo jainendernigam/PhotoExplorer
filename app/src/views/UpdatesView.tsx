@@ -1,5 +1,6 @@
 // Update software: new app versions plus theme and music packs, downloaded
 // only when the user asks. "Restart to update" swaps in a downloaded version.
+import TopBar from "../lib/topbar";
 import { useCallback, useEffect, useState } from "react";
 import { api, post, quitApp, UpdateStatus } from "../api";
 import { fmtBytes } from "../lib/format";
@@ -40,7 +41,7 @@ export default function UpdatesView() {
   return (
     <div className="h-full space-y-5 overflow-y-auto p-5">
       <header>
-        <h1 className="text-xl font-semibold">Update software</h1>
+        <TopBar><span className="font-semibold">Update software</span></TopBar>
         <p className="text-sm text-neutral-400">
           Photo Explorer {st.current_version}. Checking and downloading happen only when you click; your photos and library are never sent anywhere.
         </p>

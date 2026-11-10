@@ -1,4 +1,5 @@
 // Google Photos: one-time setup, sign-in, then "pick photos" imports.
+import TopBar from "../lib/topbar";
 import { useCallback, useEffect, useState } from "react";
 import { api, GoogleStatus, pickFolder, post } from "../api";
 
@@ -29,7 +30,7 @@ export default function GoogleView({ onChanged }: { onChanged: () => void }) {
   return (
     <div className="h-full max-w-3xl overflow-y-auto p-5 space-y-6">
       <header className="space-y-1">
-        <h1 className="text-xl font-semibold">Google Photos</h1>
+        <TopBar><span className="font-semibold">Google Photos</span></TopBar>
         <p className="text-sm text-neutral-400">
           Bring photos from Google Photos into this library. Google only lets apps import photos <b>you pick</b> in
           Google's own picker (since March 2025, apps cannot read a whole Google Photos library). Picked photos are

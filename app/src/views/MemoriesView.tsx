@@ -1,4 +1,5 @@
 // Memories: slideshows and collages being made or already made.
+import TopBar from "../lib/topbar";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, Bucket, ExportJob, exportFileUrl, exportThumbUrl, Filters, filterQuery, OrganizeJob, Person, post } from "../api";
 import AutoOrganize from "../components/AutoOrganize";
@@ -50,7 +51,7 @@ export default function MemoriesView() {
   return (
     <div className="h-full overflow-y-auto p-5 space-y-4">
       <header>
-        <h1 className="text-xl font-semibold">Memories</h1>
+        <TopBar><span className="font-semibold">Memories</span></TopBar>
         <p className="text-sm text-neutral-400">Make a slideshow or collage: choose people and/or dates below, then <b>Create…</b>.
           To hand-pick photos, select them in any photo grid and use <b>Create…</b> there.</p>
       </header>
