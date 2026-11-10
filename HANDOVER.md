@@ -1,7 +1,7 @@
 # Photo Explorer: handover
 
 For anyone (or any Claude Code session) who builds, changes or releases Photo Explorer.
-Last updated 2026-11-10, release 0.9.3.
+Last updated 2026-11-10, release 0.9.4.
 
 ## What it is
 A privacy-first, portable Windows photo organiser. Everything runs on the PC; photos never leave it.
@@ -66,14 +66,14 @@ A privacy-first, portable Windows photo organiser. Everything runs on the PC; ph
 ## Done (recent)
 - 0.9.0: memories strip, Places, Things, search by content, favourites, archive, notes, optional better faces.
 - 0.9.3: back/forward between sections, Shift range preview, month tick, Ctrl+A, Delete to archive, Undo; colour placeholders and fade-in, date bubble, pinned month, Ctrl+scroll tile size, smooth paging keys, fades, reduced motion.
+- 0.9.4: search date suggestions with arrow keys, photo grows out of its thumbnail, right-click menu, hover heart and silent video preview, drag photos onto an album, helpful empty pages.
 - 0.9.2: face grouping fix, moved folders, automatic scan, Review, music for memories, place search, Library filters, new top bar and Create menu, person page, collapsible map, viewer info panel, window fits the taskbar.
 
 ## Pending
-- Check 0.9.2/0.9.3 on the owner's PC: Review answers, top bar, window at 150% scaling and with the taskbar on the left, the mouse back button in the packaged app, how long the colour fill takes on 25k photos.
-- Google-style items not done yet: search suggestions as you type, photo grows out of its thumbnail, right-click menu, hover heart and video preview, drag photos onto an album, helpful empty pages.
+- Check 0.9.2-0.9.4 on the owner's PC: Review answers, top bar, window at 150% scaling and with the taskbar on the left, the mouse back button in the packaged app, video hover preview, closing does not shrink back to the thumbnail yet, how long the colour fill takes on 25k photos.
 - Tune CLIP thresholds (search, categories, pets) on a real library.
 - Not done from the 0.9.2 spec: an automatic "⋯" overflow menu on narrow windows; hidden face groups are remembered per PC only; Review shows a thumbnail, not the full viewer.
 - Ideas: a larger offline gazetteer (GeoNames) for exact towns; Windows folder-change notifications for instant pick-up; code signing.
 
 ## Next step
-Owner tests 0.9.3 on their PC and reports what to adjust; then the remaining Google-style items.
+Owner tests 0.9.4 on their PC and reports what to adjust.
