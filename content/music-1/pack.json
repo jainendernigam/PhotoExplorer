@@ -1,0 +1,89 @@
+{
+  "id": "music-1",
+  "kind": "music",
+  "version": 1,
+  "title": "Music pack 1",
+  "description": "10 original tracks: calm, lullaby, warm, festive, upbeat, travel, nostalgic, ambient.",
+  "items": [
+    {
+      "id": "gentle-piano",
+      "title": "Gentle Piano",
+      "mood": "calm",
+      "file": "gentle-piano.m4a",
+      "seconds": 107,
+      "licence": "Original music made for Photo Explorer"
+    },
+    {
+      "id": "music-box",
+      "title": "Music Box Lullaby",
+      "mood": "lullaby",
+      "file": "music-box.m4a",
+      "seconds": 87,
+      "licence": "Original music made for Photo Explorer"
+    },
+    {
+      "id": "warm-memories",
+      "title": "Warm Memories",
+      "mood": "warm",
+      "file": "warm-memories.m4a",
+      "seconds": 96,
+      "licence": "Original music made for Photo Explorer"
+    },
+    {
+      "id": "celebration",
+      "title": "Celebration",
+      "mood": "festive",
+      "file": "celebration.m4a",
+      "seconds": 96,
+      "licence": "Original music made for Photo Explorer"
+    },
+    {
+      "id": "sunny-day",
+      "title": "Sunny Day",
+      "mood": "upbeat",
+      "file": "sunny-day.m4a",
+      "seconds": 105,
+      "licence": "Original music made for Photo Explorer"
+    },
+    {
+      "id": "travel-diaries",
+      "title": "Travel Diaries",
+      "mood": "adventure",
+      "file": "travel-diaries.m4a",
+      "seconds": 96,
+      "licence": "Original music made for Photo Explorer"
+    },
+    {
+      "id": "nostalgia",
+      "title": "Nostalgia",
+      "mood": "nostalgic",
+      "file": "nostalgia.m4a",
+      "seconds": 105,
+      "licence": "Original music made for Photo Explorer"
+    },
+    {
+      "id": "calm-ambient",
+      "title": "Calm Ambient",
+      "mood": "ambient",
+      "file": "calm-ambient.m4a",
+      "seconds": 112,
+      "licence": "Original music made for Photo Explorer"
+    },
+    {
+      "id": "evening-glow",
+      "title": "Evening Glow",
+      "mood": "reflective",
+      "file": "evening-glow.m4a",
+      "seconds": 110,
+      "licence": "Original music made for Photo Explorer"
+    },
+    {
+      "id": "festive-bells",
+      "title": "Festive Bells",
+      "mood": "festive",
+      "file": "festive-bells.m4a",
+      "seconds": 100,
+      "licence": "Original music made for Photo Explorer"
+    }
+  ]
+}

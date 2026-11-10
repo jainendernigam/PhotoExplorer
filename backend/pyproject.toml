@@ -1,0 +1,22 @@
+[project]
+name = "photoexplorer"
+version = "0.1.0"
+description = "Local, offline photo organiser backend (scanner, index, API)"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+    "pillow>=11.0",
+    "numpy>=1.26",
+]
+
+[project.optional-dependencies]
+formats = ["pillow-heif>=0.18", "rawpy>=0.22", "exifread>=3.0"]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+photoexplorer = "photoexplorer.__main__:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

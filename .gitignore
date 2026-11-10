@@ -1,0 +1,17 @@
+# Local, built or downloaded: not source
+runtime/
+release/
+bin/
+models/
+data/
+mockups/
+PixelVault-testdata
+PhotoExplorer-admin-handoff.zip
+app/node_modules/
+app/dist/
+app/src-tauri/target/
+app/src-tauri/gen/
+__pycache__/
+*.pyc
+.pytest_cache/
+content/music/

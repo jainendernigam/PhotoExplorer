@@ -1,0 +1,18 @@
+# Core (Phase 1)
+fastapi>=0.115
+uvicorn>=0.30
+pillow>=11.0
+numpy>=1.26
+
+# Format support (optional at runtime; the scanner degrades gracefully without them)
+pillow-heif>=0.18     # HEIC / HEIF (iPhone photos)
+rawpy>=0.22           # RAW decode (CR2, CR3, NEF, ARW, DNG, ...) via LibRaw
+exifread>=3.0         # EXIF from RAW files
+
+# Faces (Phase 2)
+opencv-python-headless>=4.10   # YuNet detector + SFace embedder (CPU)
+onnxruntime>=1.20             # CLIP smart search, categories, pets; optional ArcFace faces (CPU)
+faiss-cpu>=1.8                 # fast nearest-neighbour search for clustering
+
+# Dev
+pytest>=8.0

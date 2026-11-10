@@ -1,0 +1,53 @@
+{
+  "id": "themes-1",
+  "kind": "themes",
+  "version": 1,
+  "title": "Theme pack 1",
+  "description": "6 more slideshow themes: Festival Lights, Wedding, Monsoon, Pastel, Holi Colours, Starry Night.",
+  "items": [
+    {
+      "id": "festival-lights", "name": "Festival Lights", "music": "festive-bells",
+      "description": "Rich warm colour, glowing corners and lively transitions for Diwali and other festivals.",
+      "options": {"transition": "mixed", "seconds_per_photo": 3.0, "transition_s": 0.6, "ken_burns": true,
+                  "color": "warm", "vignette": 0.45, "frame": "blur", "font": "serif", "caption_where": "bottom-center",
+                  "caption_color": "#ffd27a", "title_background": "#2a0f05", "title_color": "#ffd27a"}
+    },
+    {
+      "id": "wedding", "name": "Wedding", "music": "warm-memories",
+      "description": "Soft faded colour, white print border and elegant script captions.",
+      "options": {"transition": "dissolve", "seconds_per_photo": 4.5, "transition_s": 1.3, "ken_burns": true,
+                  "color": "faded", "frame": "print", "background": "#efe6da", "font": "script",
+                  "caption_where": "bottom-center", "caption_color": "#ffffff",
+                  "title_background": "#efe6da", "title_color": "#7a4b3a"}
+    },
+    {
+      "id": "monsoon", "name": "Monsoon", "music": "calm-ambient",
+      "description": "Cool rainy-day tones and slow dissolves.",
+      "options": {"transition": "dissolve", "seconds_per_photo": 4.0, "transition_s": 1.2, "ken_burns": true,
+                  "color": "cool", "vignette": 0.3, "grain": 0.2, "frame": "blur", "font": "sans",
+                  "title_background": "#14232c", "title_color": "#cfe6f2"}
+    },
+    {
+      "id": "pastel", "name": "Pastel", "music": "music-box",
+      "description": "Light, airy colour on a soft pink border, for babies and little ones.",
+      "options": {"transition": "circleopen", "seconds_per_photo": 3.5, "ken_burns": true, "color": "faded",
+                  "frame": "white", "background": "#f6dfe6", "font": "hand", "caption_where": "bottom-center",
+                  "caption_color": "#ffffff", "title_background": "#f6dfe6", "title_color": "#8a4a63"}
+    },
+    {
+      "id": "holi", "name": "Holi Colours", "music": "celebration",
+      "description": "Bold, saturated colour and quick cuts between photos.",
+      "options": {"transition": "mixed", "seconds_per_photo": 2.5, "transition_s": 0.4, "ken_burns": true,
+                  "color": "vivid", "frame": "blur", "font": "bold", "caption_where": "bottom-center",
+                  "title_background": "#5a1a8c", "title_color": "#ffe14d"}
+    },
+    {
+      "id": "starry-night", "name": "Starry Night", "music": "evening-glow",
+      "description": "Deep film colour, cinema bars and slow fades for evenings and night photos.",
+      "options": {"transition": "fade", "seconds_per_photo": 4.5, "transition_s": 1.4, "ken_burns": true,
+                  "color": "cinematic", "vignette": 0.5, "frame": "black", "letterbox": true, "font": "serif",
+                  "caption_where": "bottom-center", "caption_color": "#d8e2ff",
+                  "title_background": "#070b1a", "title_color": "#d8e2ff"}
+    }
+  ]
+}
