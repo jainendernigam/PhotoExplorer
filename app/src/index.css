@@ -169,3 +169,16 @@ html[data-colorful] .pe-month { color: rgb(var(--sky-400)); font-weight: 700; }
   75% { clip-path: polygon(50% 50%, 50% 0, 100% 0, 100% 100%, 0 100%, 0 50%); }
   to { clip-path: polygon(50% 50%, 50% 0, 100% 0, 100% 100%, 0 100%, 0 0); } }
 @keyframes pe-t-zoomin { from { opacity: 0; transform: scale(1.35); } to { opacity: 1; transform: none; } }
+
+/* Smooth movement: thumbnails fade in over their main colour, sections and the viewer fade in. */
+.pe-thumb { opacity: 0; transition: opacity 220ms ease-out; }
+.pe-thumb.pe-loaded { opacity: 1; }
+@keyframes pe-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes pe-pop { from { opacity: 0; transform: scale(0.97); } to { opacity: 1; transform: none; } }
+.pe-fadein { animation: pe-fade 150ms ease-out; }
+.pe-open { animation: pe-pop 180ms ease-out; }
+.pe-toast { animation: pe-fade 150ms ease-out; }
+/* Windows "Show animations" off: no fades, no smooth scrolling. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 1ms !important; transition-duration: 1ms !important; scroll-behavior: auto !important; }
+}

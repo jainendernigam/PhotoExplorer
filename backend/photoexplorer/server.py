@@ -50,7 +50,7 @@ ALLOWED_ORIGINS = [
 MEDIA_COLUMNS = (
     "id, source_id, folder_id, path, filename, kind, size, width, height, duration_ms, "
     "taken_at, tz_offset, date_source, camera_make, camera_model, gps_lat, gps_lon, "
-    "has_thumb, status, favorite, archived"
+    "has_thumb, status, favorite, archived, color"
 )
 
 
@@ -565,6 +565,13 @@ def create_app(settings: Settings, token: str) -> FastAPI:
         nxt = f"{rows[-1]['taken_at']}:{rows[-1]['id']}" if len(rows) == limit else None
         return {"items": items, "next": nxt}
 
+    @app.get("/api/media/ids")
+    def media_ids(f: "MediaFilter" = Depends()):
+        """Every id for these filters, newest first ("Select all", Ctrl+A)."""
+        where, args = f.where()
+        return [r[0] for r in db.conn.execute(
+            f"SELECT m.id FROM media m WHERE {' AND '.join(where)} ORDER BY m.taken_at DESC, m.id DESC", args)]
+
     @app.get("/api/timeline")
     def timeline(f: "MediaFilter" = Depends(), order: str = Query("desc", pattern="^(asc|desc)$")):
         """Photo counts per month for the same filters: lets the UI lay out
@@ -924,21 +931,23 @@ def create_app(settings: Settings, token: str) -> FastAPI:
             raise HTTPException(409, f"An album called '{name}' already exists")
         return name
 
-    def _add_items(album_id: int, ids: list[int]) -> int:
+    def _add_items(album_id: int, ids: list[int]) -> list[int]:
+        """Adds the photos not yet in the album; returns those (so "Undo" removes only them)."""
         start = db.conn.execute("SELECT coalesce(max(position), 0) FROM album_items WHERE album_id = ?",
                                 (album_id,)).fetchone()[0]
+        have = {r[0] for r in db.conn.execute("SELECT media_id FROM album_items WHERE album_id = ?", (album_id,))}
+        new = [m for m in dict.fromkeys(ids) if m not in have]
         with transaction(db.conn):
-            before = db.conn.total_changes
             db.conn.executemany("INSERT OR IGNORE INTO album_items(album_id, media_id, position) VALUES (?, ?, ?)",
-                                [(album_id, m, start + k + 1) for k, m in enumerate(dict.fromkeys(ids))])
-            return db.conn.total_changes - before
+                                [(album_id, m, start + k + 1) for k, m in enumerate(new)])
+        return new
 
     @app.post("/api/albums")
     def create_album(body: AlbumIn):
         name = _album_name(body.name)
         aid = db.conn.execute("INSERT INTO albums(name, created_at) VALUES (?, ?)", (name, int(time.time()))).lastrowid
-        added = _add_items(aid, body.media_ids) if body.media_ids else 0
-        return {"id": aid, "name": name, "added": added}
+        added = _add_items(aid, body.media_ids) if body.media_ids else []
+        return {"id": aid, "name": name, "added": len(added)}
 
     @app.patch("/api/albums/{album_id}")
     def rename_album(album_id: int, body: AlbumIn):
@@ -958,7 +967,8 @@ def create_app(settings: Settings, token: str) -> FastAPI:
     def album_add(album_id: int, body: AlbumItemsIn):
         if not db.conn.execute("SELECT 1 FROM albums WHERE id = ?", (album_id,)).fetchone():
             raise HTTPException(404)
-        return {"added": _add_items(album_id, body.media_ids)}
+        added = _add_items(album_id, body.media_ids)
+        return {"added": len(added), "added_ids": added}
 
     @app.post("/api/albums/{album_id}/remove")
     def album_remove(album_id: int, body: AlbumItemsIn):
@@ -1512,6 +1522,8 @@ def create_app(settings: Settings, token: str) -> FastAPI:
 
     if os.environ.get("PHOTOEXPLORER_AUTOSCAN", "1") != "0":
         _start_autoscan(scanner, _busy)
+    from .scanner.colors import start_backfill
+    start_backfill(settings.db_path, settings.thumbs_dir)
     return app
 
 

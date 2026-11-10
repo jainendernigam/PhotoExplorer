@@ -162,7 +162,7 @@ export default function Viewer({ index, total, getItem, onIndex, onClose, onChan
   }, [index, item?.id]);
 
   return (
-    <div data-theme="dark" className="fixed inset-0 z-50 flex bg-black/95">
+    <div data-theme="dark" className="pe-open fixed inset-0 z-50 flex bg-black/95">
       <div className="relative flex flex-1 items-center justify-center min-w-0" onClick={(e) => e.target === e.currentTarget && onClose()}>
         {!item ? (
           <span className="text-neutral-500">Loading…</span>

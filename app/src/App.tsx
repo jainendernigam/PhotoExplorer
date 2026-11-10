@@ -21,7 +21,12 @@ import SetupView from "./views/SetupView";
 import UpdatesView from "./views/UpdatesView";
 import { setAppearance, useAppearance } from "./lib/appearance";
 import LookMenu, { OpenWith } from "./components/LookMenu";
+import { ActiveContext, BACK_EVENT } from "./lib/active";
+import Icon from "./lib/icons";
 
+// Sections kept open in the background once visited, so coming back finds the
+// same scroll position, filters and open person.
+const KEEP: View[] = ["library", "people", "places", "albums", "folders"];
 type View = "library" | "people" | "places" | "things" | "albums" | "duplicates" | "memories" | "folders" | "google" | "updates";
 // Sources the user switched off in the sidebar (kept between runs; new sources start switched on).
 const HIDDEN_KEY = "pe.hiddenSources";
@@ -60,7 +65,37 @@ export default function App() {
   const [ready, setReady] = useState(false);
   const [needsSetup, setNeedsSetup] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [view, setView] = useState<View>("library");
+  // Back and forward between sections (mouse buttons, Alt+← / Alt+→, the ← button).
+  const [nav, setNav] = useState<{ stack: View[]; i: number }>({ stack: ["library"], i: 0 });
+  const view = nav.stack[nav.i];
+  const setView = useCallback((v: View) => setNav((n) => {
+    if (n.stack[n.i] === v) return n;
+    const stack = [...n.stack.slice(0, n.i + 1), v].slice(-50);
+    return { stack, i: stack.length - 1 };
+  }), []);
+  const step = useCallback((d: -1 | 1) => {
+    if (d < 0) {   // an open photo or a selection closes first
+      const ev = new Event(BACK_EVENT, { cancelable: true });
+      window.dispatchEvent(ev);
+      if (ev.defaultPrevented) return;
+    }
+    setNav((n) => (n.i + d < 0 || n.i + d >= n.stack.length ? n : { ...n, i: n.i + d }));
+  }, []);
+  useEffect(() => {
+    const mouse = (e: MouseEvent) => {
+      if (e.button === 3 || e.button === 4) { e.preventDefault(); step(e.button === 3 ? -1 : 1); }
+    };
+    const stop = (e: MouseEvent) => { if (e.button === 3 || e.button === 4) e.preventDefault(); };
+    const key = (e: KeyboardEvent) => {
+      if (e.altKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) { e.preventDefault(); step(e.key === "ArrowLeft" ? -1 : 1); }
+    };
+    window.addEventListener("mouseup", mouse);
+    window.addEventListener("mousedown", stop);
+    window.addEventListener("keydown", key);
+    return () => { window.removeEventListener("mouseup", mouse); window.removeEventListener("mousedown", stop); window.removeEventListener("keydown", key); };
+  }, [step]);
+  const [seen, setSeen] = useState<View[]>(["library"]);
+  useEffect(() => { setSeen((s) => (s.includes(view) ? s : [...s, view])); }, [view]);
   const [sources, setSources] = useState<Source[]>([]);
   const [scan, setScan] = useState<ScanStatus | null>(null);
   const [stats, setStats] = useState<Stats | null>(null);
@@ -83,9 +118,8 @@ export default function App() {
     const t = setInterval(get, 30000);
     return () => clearInterval(t);
   }, [ready, refreshKey, view]);
-  useEffect(() => onOpenLibrary((p) => { setPreset({ ...p }); setView("library"); }), []);
-  useEffect(() => onOpenPerson((id) => { setPersonId(id); setView("people"); }), []);
-  useEffect(() => { if ((view as string) === "timeline") setView("library"); }, [view]);
+  useEffect(() => onOpenLibrary((p) => { setPreset({ ...p }); setView("library"); }), [setView]);
+  useEffect(() => onOpenPerson((id) => { setPersonId(id); setView("people"); }), [setView]);
   const [intro, setIntro] = useState(() => look.intro);   // the opening animation, once per start
 
   const refresh = useCallback(async () => {
@@ -191,24 +225,38 @@ export default function App() {
       <div className="flex min-w-0 flex-1 flex-col">
       {/* One top bar for every section: its search, filters and actions, then Look (always last). */}
       <div className="pe-topbar flex min-h-[3.25rem] shrink-0 flex-wrap items-center gap-2 border-b border-neutral-900 px-3 py-2 text-sm">
+        {nav.i > 0 && (
+          <button className="rounded-full p-1.5 text-neutral-400 hover:bg-neutral-800 hover:text-neutral-100"
+            title="Back (Alt+←, or the mouse back button)" onClick={() => step(-1)}><Icon name="back" className="h-4 w-4" /></button>
+        )}
         <div ref={setTopBarSlot} className="flex min-w-0 flex-1 flex-wrap items-center gap-2" />
         {closed && error && <span className="truncate text-xs text-red-400">{error}</span>}
         <LookMenu openWith={openWith} onOpenWith={(enable) => post<OpenWith>("/api/system/open-with", { enable })
           .then(setOpenWith).catch((er) => setError(String(er)))} />
       </div>
-      <main key={scopeKey} className="min-h-0 min-w-0 flex-1">
+      <main key={scopeKey} className="relative min-h-0 min-w-0 flex-1">
         {!ready ? (
           <p className="p-6 text-neutral-500">{error ? "Could not reach the engine." : "Starting the engine…"}</p>
-        ) : view === "library" ? <LibraryView refreshKey={refreshKey} preset={preset} />
-          : view === "places" ? <PlacesView refreshKey={refreshKey} />
-          : view === "things" ? <ThingsView busy={busy} refreshKey={refreshKey} />
-          : view === "people" ? <PeopleView busy={busy} scanState={scan?.state} onChanged={refresh} openId={personId} />
-          : view === "duplicates" ? <DuplicatesView busy={busy && scan?.state !== "faces" && scan?.state !== "clustering"} onChanged={refresh} />
-          : view === "albums" ? <AlbumsView key={refreshKey} />
-          : view === "memories" ? <MemoriesView />
-          : view === "google" ? <GoogleView onChanged={refresh} />
-          : view === "updates" ? <UpdatesView />
-          : <FoldersView refreshKey={refreshKey} />}
+        ) : NAV.map(({ id }) => {
+          const on = id === view;
+          if (!on && !(KEEP.includes(id) && seen.includes(id))) return null;
+          return (
+            <ActiveContext.Provider key={id} value={on}>
+              <div className={`pe-section absolute inset-0 ${on ? "pe-fadein" : "invisible pointer-events-none"}`} aria-hidden={!on}>
+                {id === "library" ? <LibraryView refreshKey={refreshKey} preset={preset} />
+                  : id === "places" ? <PlacesView refreshKey={refreshKey} />
+                  : id === "things" ? <ThingsView busy={busy} refreshKey={refreshKey} />
+                  : id === "people" ? <PeopleView busy={busy} scanState={scan?.state} onChanged={refresh} openId={personId} />
+                  : id === "duplicates" ? <DuplicatesView busy={busy && scan?.state !== "faces" && scan?.state !== "clustering"} onChanged={refresh} />
+                  : id === "albums" ? <AlbumsView key={refreshKey} />
+                  : id === "memories" ? <MemoriesView />
+                  : id === "google" ? <GoogleView onChanged={refresh} />
+                  : id === "updates" ? <UpdatesView />
+                  : <FoldersView refreshKey={refreshKey} />}
+              </div>
+            </ActiveContext.Provider>
+          );
+        })}
       </main>
       </div>
       {loose && <LooseViewer path={loose} onClose={() => setLoose(null)}

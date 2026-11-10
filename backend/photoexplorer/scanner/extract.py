@@ -82,6 +82,9 @@ def process(job: tuple[int, str, str, int]) -> dict:
 
 # ---------------------------------------------------------------- helpers
 
+from .colors import color_of
+
+
 def _thumb_path(digest: bytes) -> Path:
     h = digest.hex()
     return Path(_cfg["thumb_dir"]) / h[:2] / h[2:4] / f"{h}.webp"
@@ -123,6 +126,7 @@ def _visual(img: Image.Image, digest: bytes) -> dict:
                 raise
             tmp.unlink(missing_ok=True)
     res["has_thumb"] = 1
+    res["color"] = color_of(img)
     return res
 
 

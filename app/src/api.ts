@@ -228,6 +228,7 @@ export type Media = {
   id: number; filename: string; kind: "image" | "raw" | "video"; path: string;
   width: number | null; height: number | null; taken: string | null; has_thumb: number;
   duration_ms: number | null; size: number; favorite?: number; archived?: number;
+  color?: number | null;   // main colour 0xRRGGBB, shown while the thumbnail loads
 };
 export type Face = {
   id: number; x: number; y: number; w: number; h: number; score: number;
@@ -359,7 +360,7 @@ export type OrganizeRule = {
 
 // ---- favourites, archive, things, pets, places, memories, face models ----
 export const markMedia = (ids: number[], change: { favorite?: boolean; archived?: boolean }) =>
-  post<{ changed: number }>("/api/media/mark", { media_ids: ids, ...change });
+  post<{ changed: number; ids: number[] }>("/api/media/mark", { media_ids: ids, ...change });
 export type Download = { state: "running" | "done" | "error"; done: number; total: number; error: string | null } | null;
 export type SmartStatus = { available: boolean; missing: string[]; todo: number; done: number; download: Download; size_mb: number };
 export type Category = { tag: string; label: string; count: number; cover: number };

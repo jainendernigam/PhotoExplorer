@@ -4,6 +4,7 @@
 // right below it.
 import { ReactNode, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
+import { useActive } from "./active";
 
 let slot: HTMLElement | null = null;
 const subs = new Set<() => void>();
@@ -20,5 +21,6 @@ function useSlot(): HTMLElement | null {
 
 export default function TopBar({ children }: { children: ReactNode }) {
   const el = useSlot();
-  return el ? createPortal(children, el) : null;
+  const active = useActive();
+  return el && active ? createPortal(children, el) : null;
 }

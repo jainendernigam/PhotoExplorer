@@ -87,13 +87,18 @@ def register(app: FastAPI, db, settings, scanner) -> None:
             sets.append("archived = ?"); args.append(int(body.archived))
         if not sets:
             raise HTTPException(400, "Nothing to change")
-        n = 0
+        # Only rows that really change are touched and returned, so "Undo" can put back exactly those.
+        differs = " OR ".join(f"{c.split(' ')[0]} IS NOT ?" for c in sets)
+        ids: list[int] = []
         with transaction(db.conn):
             for i in range(0, len(body.media_ids), 900):
                 chunk = body.media_ids[i:i + 900]
-                n += db.conn.execute(f"UPDATE media SET {', '.join(sets)} WHERE id IN ({','.join('?' * len(chunk))})",
-                                     (*args, *chunk)).rowcount
-        return {"changed": n}
+                inn = f"id IN ({','.join('?' * len(chunk))})"
+                hit = [r[0] for r in db.conn.execute(f"SELECT id FROM media WHERE {inn} AND ({differs})", (*chunk, *args))]
+                if hit:
+                    db.conn.execute(f"UPDATE media SET {', '.join(sets)} WHERE id IN ({','.join('?' * len(hit))})", (*args, *hit))
+                ids += hit
+        return {"changed": len(ids), "ids": ids}
 
     @app.post("/api/media/{media_id}/note")
     def set_note(media_id: int, body: NoteIn):

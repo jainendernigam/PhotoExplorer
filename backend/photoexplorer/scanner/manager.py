@@ -40,7 +40,7 @@ RESULT_COLUMNS = (
     "sha256", "hash_sampled", "phash", "dhash", "ph0", "ph1", "ph2", "ph3",
     "width", "height", "duration_ms", "video_codec", "has_thumb",
     "taken_at", "tz_offset", "date_source",
-    "camera_make", "camera_model", "lens", "gps_lat", "gps_lon", "gps_alt",
+    "camera_make", "camera_model", "lens", "gps_lat", "gps_lon", "gps_alt", "color",
 )
 _UPDATE_RESULT_SQL = (
     "UPDATE media SET status = :status, error = :error, indexed_at = :now, "

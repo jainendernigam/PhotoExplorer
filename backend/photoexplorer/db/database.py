@@ -29,6 +29,7 @@ MIGRATIONS: list[tuple[int, str]] = [
     (11, "schema_v11.sql"),
     (12, "schema_v12.sql"),
     (13, "schema_v13.sql"),
+    (14, "schema_v14.sql"),
 ]
 
 PRAGMAS = (

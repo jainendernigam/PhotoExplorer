@@ -5,6 +5,7 @@ const P: Record<string, string> = {
   play: "M8 5l11 7-11 7z",
   sparkles: "M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8zM19 15l.8 2.2 2.2.8-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z",
   minus: "M5 12h14",
+  back: "M19 12H5M11 6l-6 6 6 6",
   plus: "M12 5v14M5 12h14",
   heart: "M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z",
   archive: "M4 5h16v4H4zM5 9v10h14V9M10 13h4",
