@@ -8,6 +8,7 @@ import TopBar from "../lib/topbar";
 import Icon from "../lib/icons";
 import { ageAt } from "../lib/format";
 import { openLibrary } from "../lib/nav";
+import Empty from "../components/Empty";
 
 type Sel = { person: Person } | { cluster: Cluster } | { review: true } | null;
 const HIDDEN_GROUPS = "pe.people.hiddenGroups";
@@ -152,7 +153,10 @@ export default function PeopleView({ busy, scanState, onChanged, openId }: {
       {!f && (
         <section>
           <h2 className="mb-3 text-xs uppercase tracking-wide text-neutral-400">Unnamed groups ({shownGroups.length})</h2>
-          {shownGroups.length === 0 && <p className="text-sm text-neutral-500">No unnamed groups.</p>}
+          {shownGroups.length === 0 && (people.length === 0
+            ? <Empty compact icon="search" title="No faces found yet"
+                hint="Faces are found after a scan, in photos with people in them. Groups of the same face then wait here for a name." />
+            : <p className="text-sm text-neutral-500">No unnamed groups.</p>)}
           <div className="space-y-3">
             {shownGroups.map((c) => (
               <ClusterRow key={c.cluster_id} c={c} people={people} busy={busy}

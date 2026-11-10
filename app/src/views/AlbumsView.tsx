@@ -3,6 +3,8 @@ import TopBar from "../lib/topbar";
 import { useCallback, useEffect, useState } from "react";
 import { Album, api, del, patch, post, thumbUrl } from "../api";
 import PhotoGrid from "../components/PhotoGrid";
+import Empty from "../components/Empty";
+import { openLibrary } from "../lib/nav";
 
 export default function AlbumsView() {
   const [albums, setAlbums] = useState<Album[]>([]);
@@ -37,7 +39,9 @@ export default function AlbumsView() {
       </TopBar>
       {err && <p className="text-sm text-red-400">{err}</p>}
       {albums.length === 0 && (
-        <p className="text-neutral-500">No albums yet. In any photo grid tick photos, then <b>Add to album</b>.</p>
+        <Empty icon="album" title="No albums yet"
+          hint="Tick photos in Library and press Add to album, or drag photos onto an album. Albums never move or copy the files."
+          action={{ label: "Go to Library", fn: () => openLibrary({}) }} />
       )}
       <div className="grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))" }}>
         {albums.map((a) => (

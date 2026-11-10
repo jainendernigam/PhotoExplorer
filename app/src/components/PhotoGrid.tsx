@@ -11,7 +11,8 @@
 //    month has placeholder rows of about the right height.
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { elementScroll, observeElementOffset, useVirtualizer } from "@tanstack/react-virtual";
-import { Album, api, Bucket, del, filterQuery, Filters, Media, post, thumbUrl } from "../api";
+import { Album, api, Bucket, del, fileUrl, filterQuery, Filters, Media, post, thumbUrl } from "../api";
+import Empty from "./Empty";
 import { onBack, useActive } from "../lib/active";
 import { fmtDuration, monthLabel, monthRange } from "../lib/format";
 import CreateDialog, { CreateSource } from "./CreateDialog";
@@ -166,9 +167,9 @@ export default function PhotoGrid({ filters, sectionNote, emptyText = "No photos
     return out;
   };
   const allFav = selecting && pickedMedia().every((m) => m.favorite);
-  const mark = async (change: { favorite?: boolean; archived?: boolean }) => {
+  const mark = async (change: { favorite?: boolean; archived?: boolean }, ids: number[] = [...selected]) => {
     try {
-      const r = await markMedia([...selected], change);
+      const r = await markMedia(ids, change);
       const reloads = change.archived !== undefined || !!filters.fav;
       // Favourites change in place (no reload): set the heart on the loaded photos.
       const setFav = (ids: number[], fav: boolean) => {
@@ -190,6 +191,73 @@ export default function PhotoGrid({ filters, sectionNote, emptyText = "No photos
       after(r.ids, change);
     } catch (e) { setNotice(String(e)); }
   };
+  // The heart on a photo: favourite or not, with Undo.
+  const favOne = async (m: Media) => {
+    const to = !m.favorite;
+    const set = (v: boolean) => { m.favorite = v ? 1 : 0; setVersion((x) => x + 1); if (filters.fav) setReload((x) => x + 1); };
+    try {
+      await markMedia([m.id], { favorite: to });
+      set(to);
+      setNotice(to ? "Added to favourites." : "Removed from favourites.", async () => { await markMedia([m.id], { favorite: !to }); set(!to); });
+    } catch (e) { setNotice(String(e)); }
+  };
+  // Right-click menu on a photo: acts on the selection if the photo is in it, else on that photo.
+  const [ctx, setCtx] = useState<{ x: number; y: number; m: Media; g: number } | null>(null);
+  // "Add to album" from the right-click menu or a drop on "New album…".
+  const [pickFor, setPickFor] = useState<number[] | null>(null);
+  // Opening a photo: it grows out of its thumbnail.
+  const [zoomFx, setZoomFx] = useState<{ r: DOMRect; src: string; w: number; h: number } | null>(null);
+  const openAt = (g: number, m: Media, el?: HTMLElement) => {
+    if (el && m.has_thumb && !window.matchMedia("(prefers-reduced-motion: reduce)").matches)
+      setZoomFx({ r: el.getBoundingClientRect(), src: thumbUrl(m.id, m.size), w: m.width || 4, h: m.height || 3 });
+    setOpen(g);
+  };
+  // Dragging photos (press on a photo and move) shows a tray of albums to drop them on.
+  const press = useRef<{ x: number; y: number; m: Media } | null>(null);
+  const dragged = useRef(false);
+  const [drag, setDrag] = useState<{ ids: number[]; x: number; y: number; cover: Media } | null>(null);
+  const [dropAlbums, setDropAlbums] = useState<Album[] | null>(null);
+  const [dropOn, setDropOn] = useState<string | null>(null);
+  const pressTile = (e: React.PointerEvent, m: Media) => {
+    if (e.button === 0 && !e.shiftKey && !e.ctrlKey) press.current = { x: e.clientX, y: e.clientY, m };
+  };
+  const dropTarget = (x: number, y: number) =>
+    (document.elementFromPoint(x, y)?.closest("[data-drop]") as HTMLElement | null)?.dataset.drop ?? null;
+  const addToAlbum = async (album: Album, ids: number[]) => {
+    try {
+      const r = await post<{ added: number; added_ids: number[] }>(`/api/albums/${album.id}/add`, { media_ids: ids });
+      onAlbumChanged?.();
+      setNotice(`Added ${r.added} to “${album.name}”` + (r.added < ids.length ? ` (${ids.length - r.added} were already in it)` : ""),
+        r.added ? async () => { await post(`/api/albums/${album.id}/remove`, { media_ids: r.added_ids }); onAlbumChanged?.(); } : undefined);
+    } catch (e) { setNotice(String(e)); }
+  };
+  useEffect(() => {
+    const move = (e: PointerEvent) => {
+      const p = press.current;
+      if (!p) return;
+      if (!drag) {
+        if (!(e.buttons & 1) || Math.hypot(e.clientX - p.x, e.clientY - p.y) < 8) return;
+        setDrag({ ids: selected.has(p.m.id) ? [...selected] : [p.m.id], x: e.clientX, y: e.clientY, cover: p.m });
+        api<Album[]>("/api/albums").then(setDropAlbums).catch(() => setDropAlbums([]));
+        return;
+      }
+      setDrag({ ...drag, x: e.clientX, y: e.clientY });
+      setDropOn(dropTarget(e.clientX, e.clientY));
+    };
+    const up = (e: PointerEvent) => {
+      press.current = null;
+      if (!drag) return;
+      dragged.current = true;   // the click that ends a drag doesn't open the photo
+      window.setTimeout(() => { dragged.current = false; }, 0);
+      const t = dropTarget(e.clientX, e.clientY);
+      setDrag(null); setDropOn(null);
+      if (t === "new") setPickFor(drag.ids);
+      else if (t) { const a = dropAlbums?.find((x) => String(x.id) === t); if (a) addToAlbum(a, drag.ids); }
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    return () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); };
+  });
   // Ctrl+A: every photo for the current filters, loaded or not.
   const selectAll = async () => {
     try { setSelected(new Set(await api<number[]>(`/api/media/ids?${key}`))); } catch (e) { setNotice(String(e)); }
@@ -495,7 +563,8 @@ export default function PhotoGrid({ filters, sectionNote, emptyText = "No photos
         <div ref={scrollRef} className="absolute inset-y-0 left-0 right-10 overflow-y-auto"
           onScroll={(e) => { onMove(); if (above) setFolded(e.currentTarget.scrollTop > 40); }}>
           {error && <p className="p-4 text-red-400 text-sm">{error}</p>}
-          {buckets && total === 0 && <div className="p-6 text-neutral-500">{emptyText}{emptyAction && <button className="ml-3 rounded-lg bg-neutral-800 px-3 py-1 text-sm text-neutral-200 hover:bg-neutral-700" onClick={emptyAction.fn}>{emptyAction.label}</button>}</div>}
+          {buckets && total === 0 && <Empty title={emptyText} action={emptyAction}
+            icon={filters.fav ? "heart" : filters.show === "archive" ? "archive" : filters.albumId != null ? "album" : filters.q ? "search" : "folders"} />}
           <div style={{ height: scrollH, position: "relative" }}>
             {vitems.map((v) => {
               const row = rows[v.index];
@@ -551,7 +620,8 @@ export default function PhotoGrid({ filters, sectionNote, emptyText = "No photos
                           preview={!!range && g >= range[0] && g <= range[1]} onHover={() => { if (selecting && hoverG !== g) setHoverG(g); }}
                           onDragStart={() => { dragTick.current = !selected.has(m.id); }}
                           onDragOver={() => { if (dragTick.current !== null && selected.has(m.id) !== dragTick.current) toggleSel(m.id); }}
-                            onOpen={(shift) => (selecting ? tickSel(m.id, g, shift) : setOpen(g))} />
+                            onOpen={(shift, el) => { if (dragged.current) return; if (selecting) tickSel(m.id, g, shift); else openAt(g, m, el); }}
+                          onMenu={(x, y) => setCtx({ x, y, m, g })} onFav={() => favOne(m)} onPress={(e) => pressTile(e, m)} />
                             : <div className="h-full w-full bg-neutral-900" />}
                         </div>
                       );
@@ -571,7 +641,8 @@ export default function PhotoGrid({ filters, sectionNote, emptyText = "No photos
                           preview={!!range && g >= range[0] && g <= range[1]} onHover={() => { if (selecting && hoverG !== g) setHoverG(g); }}
                           onDragStart={() => { dragTick.current = !selected.has(m.id); }}
                           onDragOver={() => { if (dragTick.current !== null && selected.has(m.id) !== dragTick.current) toggleSel(m.id); }}
-                          onOpen={(shift) => (selecting ? tickSel(m.id, g, shift) : setOpen(g))} />
+                          onOpen={(shift, el) => { if (dragged.current) return; if (selecting) tickSel(m.id, g, shift); else openAt(g, m, el); }}
+                          onMenu={(x, y) => setCtx({ x, y, m, g })} onFav={() => favOne(m)} onPress={(e) => pressTile(e, m)} />
                           : <div className="h-full w-full bg-neutral-900" />}
                       </div>
                     );
@@ -620,6 +691,57 @@ export default function PhotoGrid({ filters, sectionNote, emptyText = "No photos
           onClose={closeViewer}
           onChanged={() => { stale.current = true; }} />
       )}
+      {zoomFx && <ZoomFx {...zoomFx} onDone={() => setZoomFx(null)} />}
+      {ctx && (() => {
+        const ids = selected.has(ctx.m.id) ? [...selected] : [ctx.m.id];
+        const many = ids.length > 1;
+        const fav = many ? pickedMedia().every((m) => m.favorite) : !!ctx.m.favorite;
+        const archived = filters.show === "archive";
+        const n = many ? ` ${ids.length.toLocaleString()} photos` : "";
+        return (
+          <ContextMenu x={ctx.x} y={ctx.y} onClose={() => setCtx(null)} items={[
+            ...(!many ? [{ icon: "play" as IconName, label: "Open", fn: () => openAt(ctx.g, ctx.m) }] : []),
+            { icon: "plus" as IconName, label: selected.has(ctx.m.id) ? "Unselect" : "Select", fn: () => tickSel(ctx.m.id, ctx.g) },
+            { icon: "heart" as IconName, label: fav ? `Remove${n} from favourites` : `Add${n} to favourites`,
+              fn: () => (many ? mark({ favorite: !fav }, ids) : favOne(ctx.m)) },
+            { icon: "album" as IconName, label: `Add${n} to album…`, fn: () => setPickFor(ids) },
+            { icon: (archived ? "unarchive" : "archive") as IconName, label: archived ? `Unarchive${n}` : `Archive${n}`, hint: "Del",
+              fn: () => mark({ archived: !archived }, ids) },
+            ...(!many ? [{ icon: "folders" as IconName, label: "Show in folder", fn: () => { post("/api/reveal-file", { path: ctx.m.path }).catch((e) => setNotice(String(e))); } }] : []),
+            { icon: "edit" as IconName, label: "Edit…", fn: () => setEditIds(ids) },
+            { icon: "printer" as IconName, label: "Print…", fn: () => setPrintIds(ids) },
+          ]} />
+        );
+      })()}
+      {pickFor && (
+        <div className="fixed inset-0 z-[65]" onMouseDown={() => setPickFor(null)}>
+          <div className="absolute left-1/2 top-1/4 w-64 -translate-x-1/2" onMouseDown={(e) => e.stopPropagation()}>
+            <div className="relative"><AlbumPicker ids={pickFor} onDone={(msg, undo) => {
+              setPickFor(null); onAlbumChanged?.();
+              setNotice(msg, undo && (async () => { await undo(); onAlbumChanged?.(); }));
+            }} /></div>
+          </div>
+        </div>
+      )}
+      {drag && (
+        <>
+          {/* The dragged photos follow the mouse; albums wait at the bottom. */}
+          <div className="pointer-events-none fixed z-[70] h-16 w-16 overflow-hidden rounded-lg shadow-2xl ring-2 ring-sky-400"
+            style={{ left: drag.x + 12, top: drag.y + 12 }}>
+            {drag.cover.has_thumb ? <img src={thumbUrl(drag.cover.id, drag.cover.size)} className="h-full w-full object-cover" /> : null}
+            {drag.ids.length > 1 && <span className="absolute right-0.5 top-0.5 rounded-full bg-sky-600 px-1.5 text-[11px] font-semibold text-white">{drag.ids.length}</span>}
+          </div>
+          <div className="pe-droptray pe-fadein fixed bottom-6 left-1/2 z-[66] flex max-w-[80vw] -translate-x-1/2 flex-wrap items-center justify-center gap-2 rounded-2xl border border-neutral-700 bg-neutral-900/95 p-2 text-sm shadow-2xl backdrop-blur">
+            <span className="px-2 text-xs text-neutral-400">Drop on an album</span>
+            {(dropAlbums ?? []).slice(0, 12).map((a) => (
+              <span key={a.id} data-drop={a.id} className={`flex items-center gap-1.5 rounded-xl px-3 py-1.5 ${dropOn === String(a.id) ? "bg-sky-600 text-white" : "bg-neutral-800 text-neutral-200"}`}>
+                <Icon name="album" className="h-4 w-4" />{a.name}</span>
+            ))}
+            <span data-drop="new" className={`flex items-center gap-1.5 rounded-xl border border-dashed px-3 py-1.5 ${dropOn === "new" ? "border-sky-400 bg-sky-600 text-white" : "border-neutral-600 text-neutral-300"}`}>
+              <Icon name="plus" className="h-4 w-4" />New album…</span>
+          </div>
+        </>
+      )}
       {editIds && <EditDialog mediaIds={editIds} onClose={() => setEditIds(null)}
         onSaved={(msg) => { setNotice(msg); setSelected(new Set()); setReload((x) => x + 1); }} />}
       {printIds && <PrintDialog mediaIds={printIds} onClose={() => setPrintIds(null)} />}
@@ -663,14 +785,26 @@ function AlbumPicker({ ids, onDone }: { ids: number[]; onDone: (msg: string, und
   );
 }
 
-function Tile({ m, onOpen, selected, selecting, onTick, onDragStart, onDragOver, preview, onHover }: {
-  m: Media; onOpen: (shift: boolean) => void; selected: boolean; selecting: boolean; onTick: (shift: boolean) => void;
+function Tile({ m, onOpen, selected, selecting, onTick, onDragStart, onDragOver, preview, onHover, onMenu, onFav, onPress }: {
+  m: Media; onOpen: (shift: boolean, el: HTMLElement) => void; selected: boolean; selecting: boolean; onTick: (shift: boolean) => void;
   onDragStart: () => void; onDragOver: () => void; preview: boolean; onHover: () => void;
+  onMenu: (x: number, y: number) => void; onFav: () => void; onPress: (e: React.PointerEvent) => void;
 }) {
+  // Videos play silently while the mouse rests on them.
+  const [vid, setVid] = useState(false);
+  const vt = useRef<number>();
+  useEffect(() => () => window.clearTimeout(vt.current), []);
   return (
     <button className="pe-tile group relative block h-full w-full overflow-hidden bg-neutral-900 focus:outline focus:outline-2 focus:outline-sky-500"
       style={m.color != null ? { backgroundColor: `#${m.color.toString(16).padStart(6, "0")}` } : undefined}
-      onClick={(e) => onOpen(e.shiftKey)} onPointerEnter={(e) => { onHover(); if (e.buttons === 1) onDragOver(); }} title={m.filename}>
+      onClick={(e) => onOpen(e.shiftKey, e.currentTarget)} title={m.filename}
+      onPointerEnter={(e) => {
+        onHover(); if (e.buttons === 1) onDragOver();
+        if (m.kind === "video" && !e.buttons) vt.current = window.setTimeout(() => setVid(true), 450);
+      }}
+      onPointerLeave={() => { window.clearTimeout(vt.current); setVid(false); }}
+      onPointerDown={onPress}
+      onContextMenu={(e) => { e.preventDefault(); onMenu(e.clientX, e.clientY); }}>
       {m.has_thumb ? (
         <img src={thumbUrl(m.id, m.size)} loading="lazy" decoding="async" draggable={false}
           // Fades in over its main colour once loaded (at once if it was already loaded).
@@ -680,11 +814,20 @@ function Tile({ m, onOpen, selected, selecting, onTick, onDragStart, onDragOver,
       ) : (
         <span className="grid h-full place-items-center p-2 text-[11px] text-neutral-500 break-all">{m.filename}</span>
       )}
+      {vid && <video src={fileUrl(m.id)} muted autoPlay loop playsInline onError={() => setVid(false)}
+        className="pointer-events-none absolute inset-0 h-full w-full object-cover" />}
       {m.kind === "video" && (
         <span className="absolute bottom-1 right-1 rounded bg-black/70 px-1 text-[10px]">▶ {fmtDuration(m.duration_ms)}</span>
       )}
       {m.kind === "raw" && <span className="absolute top-1 left-1 rounded bg-black/70 px-1 text-[9px]">RAW</span>}
-      {!!m.favorite && <span className="absolute bottom-1 left-1 text-rose-400 drop-shadow"><Icon name="heart" filled className="h-4 w-4" /></span>}
+      {/* The heart: always shown on favourites, on hover for the rest; a click toggles it. */}
+      {!(selecting && !m.favorite) && (
+        <span role="button" title={m.favorite ? "Remove from favourites" : "Add to favourites"}
+          onClick={(e) => { e.stopPropagation(); onFav(); }} onPointerDown={(e) => e.stopPropagation()}
+          className={`absolute bottom-1 left-1 z-[1] rounded-full p-0.5 drop-shadow transition-opacity hover:scale-110 ${m.favorite
+            ? "text-rose-400" : "text-white/90 opacity-0 group-hover:opacity-100"}`}>
+          <Icon name="heart" filled={!!m.favorite} className="h-4 w-4" /></span>
+      )}
       {!selecting && <span className="pointer-events-none absolute inset-x-0 top-0 h-10 bg-gradient-to-b from-black/40 to-transparent opacity-0 transition-opacity group-hover:opacity-100" />}
       <span role="checkbox" aria-checked={selected} title={selected ? "Unselect" : "Select"}
         onClick={(e) => { e.stopPropagation(); onTick(e.shiftKey); }}
@@ -696,6 +839,64 @@ function Tile({ m, onOpen, selected, selecting, onTick, onDragStart, onDragOver,
       {selected && <span className="absolute inset-0 bg-sky-500/25 ring-2 ring-inset ring-sky-400" />}
       {preview && !selected && <span className="pointer-events-none absolute inset-0 bg-sky-400/15 ring-2 ring-inset ring-sky-300/70" />}
     </button>
+  );
+}
+
+// The photo flies from its thumbnail to the middle of the screen while the viewer opens under it.
+function ZoomFx({ r, src, w, h, onDone }: { r: DOMRect; src: string; w: number; h: number; onDone: () => void }) {
+  const ref = useRef<HTMLImageElement>(null);
+  useLayoutEffect(() => {
+    const el = ref.current!;
+    const W = window.innerWidth, H = window.innerHeight;
+    const s = Math.min((W * 0.92) / w, (H * 0.86) / h);
+    const tw = w * s, th = h * s, tl = (W - tw) / 2, tt = (H - th) / 2;
+    Object.assign(el.style, { left: `${tl}px`, top: `${tt}px`, width: `${tw}px`, height: `${th}px`,
+      transform: `translate(${r.left - tl}px, ${r.top - tt}px) scale(${r.width / tw}, ${r.height / th})` });
+    el.getBoundingClientRect();   // start from the thumbnail
+    el.style.transition = "transform 240ms cubic-bezier(.2,.8,.2,1), opacity 140ms ease 240ms";
+    el.style.transform = "none";
+    el.style.opacity = "0";
+    const t = window.setTimeout(onDone, 400);
+    return () => window.clearTimeout(t);
+  }, []);   // eslint-disable-line react-hooks/exhaustive-deps
+  return <img ref={ref} src={src} alt="" className="pointer-events-none fixed z-[60] object-cover" style={{ transformOrigin: "0 0" }} />;
+}
+
+// Right-click menu at the mouse; arrow keys move, Enter picks, Esc closes.
+function ContextMenu({ x, y, items, onClose }: {
+  x: number; y: number; onClose: () => void;
+  items: { icon: IconName; label: string; hint?: string; fn: () => void }[];
+}) {
+  const box = useRef<HTMLDivElement>(null);
+  const [hi, setHi] = useState(0);
+  const [pos, setPos] = useState({ left: x, top: y });
+  useLayoutEffect(() => {
+    const r = box.current!.getBoundingClientRect();
+    setPos({ left: Math.min(x, window.innerWidth - r.width - 8), top: Math.min(y, window.innerHeight - r.height - 8) });
+  }, [x, y]);
+  useEffect(() => {
+    const down = (e: MouseEvent) => { if (!box.current?.contains(e.target as Node)) onClose(); };
+    const key = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+      else if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); setHi((h) => (h + (e.key === "ArrowDown" ? 1 : items.length - 1)) % items.length); }
+      else if (e.key === "Enter") { e.preventDefault(); onClose(); items[hi]?.fn(); }
+    };
+    window.addEventListener("mousedown", down);
+    window.addEventListener("keydown", key, true);
+    window.addEventListener("wheel", onClose, { passive: true });
+    return () => { window.removeEventListener("mousedown", down); window.removeEventListener("keydown", key, true); window.removeEventListener("wheel", onClose); };
+  });
+  return (
+    <div ref={box} role="menu" className="pe-menu pe-fadein fixed z-[64] w-60 rounded-xl border border-neutral-700 bg-neutral-900 p-1.5 text-sm text-neutral-200 shadow-xl"
+      style={pos} onContextMenu={(e) => e.preventDefault()}>
+      {items.map((it, i) => (
+        <button key={it.label} role="menuitem" onMouseEnter={() => setHi(i)} onClick={() => { onClose(); it.fn(); }}
+          className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-1.5 text-left ${i === hi ? "bg-neutral-800" : ""}`}>
+          <Icon name={it.icon} className="h-4 w-4 shrink-0 text-sky-400" /><span className="flex-1">{it.label}</span>
+          {it.hint && <kbd className="rounded border border-neutral-700 px-1.5 text-[10px] text-neutral-500">{it.hint}</kbd>}
+        </button>
+      ))}
+    </div>
   );
 }
 

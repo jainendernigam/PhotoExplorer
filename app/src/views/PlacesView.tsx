@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { api, Place, thumbUrl } from "../api";
 import PhotoGrid from "../components/PhotoGrid";
 import Icon from "../lib/icons";
+import Empty from "../components/Empty";
 
 type World = { countries: { n: string; r: number[][] }[]; states: number[][]; places: [string, number, number, number, string, string][] };
 type View = { lon: number; lat: number; z: number };   // z: pixels per degree
@@ -50,7 +51,8 @@ export default function PlacesView({ refreshKey }: { refreshKey: number }) {
   );
 
   if (!points.length && !placeList.length) {
-    return <p className="p-6 text-neutral-500">No photos with a location yet. Phones usually save where a photo was taken.</p>;
+    return <Empty icon="pin" title="No photos with a location yet"
+      hint="Phones usually save where a photo was taken. Such photos appear here on a map after a scan." />;
   }
   return (
     <div className="flex h-full min-h-0">

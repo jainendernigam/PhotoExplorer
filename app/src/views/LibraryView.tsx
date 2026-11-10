@@ -67,6 +67,7 @@ export default function LibraryView({ refreshKey, preset }: { refreshKey: number
   const head = (
     <>
       <SearchBox q={q} setQ={setQ} people={people}
+        onDates={(from, to) => { setQ(""); setQuery(""); setDates({ from, to, key: "custom" }); }}
         onPerson={(p) => { setQ(""); setQuery(""); setPersons((c) => (c.includes(p.id) ? c : [...c, p.id])); }}
         onExtra={(x) => { setQ(""); setQuery(""); setExtra(x); }} />
       <select value={kind} onChange={(e) => setKind(e.target.value as Kind)}
@@ -220,10 +221,27 @@ function CustomDates({ dates, onChange }: { dates: Dates; onChange: (d: Dates) =
 }
 
 // Search box with suggestions after 2 letters: places, people, folders and things.
-function SearchBox({ q, setQ, people, onPerson, onExtra }: {
+const MONTHS = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+const pad = (n: number) => String(n).padStart(2, "0");
+// "2019" → that year; "march 2020" or "mar 20" style → that month; "march" → March of the last three years.
+function dateSuggestions(t: string): { label: string; from: string; to: string }[] {
+  const y = t.match(/\b(19|20)\d{2}\b/)?.[0];
+  const word = t.replace(/\b(19|20)\d{2}\b/, "").trim();
+  const mi = word.length >= 3 ? MONTHS.findIndex((m) => m.startsWith(word)) : -1;
+  const month = (yy: number) => ({ label: `${cap(MONTHS[mi])} ${yy}`, from: `${yy}-${pad(mi + 1)}-01`,
+    to: `${yy}-${pad(mi + 1)}-${pad(new Date(yy, mi + 1, 0).getDate())}` });
+  if (y && mi >= 0) return [month(+y)];
+  if (y && !word) return [{ label: `The year ${y}`, from: `${y}-01-01`, to: `${y}-12-31` }];
+  if (!y && mi >= 0) return [thisYear, thisYear - 1, thisYear - 2].map(month);
+  return [];
+}
+
+function SearchBox({ q, setQ, people, onPerson, onExtra, onDates }: {
   q: string; setQ: (s: string) => void; people: Person[];
-  onPerson: (p: Person) => void; onExtra: (x: Extra) => void;
+  onPerson: (p: Person) => void; onExtra: (x: Extra) => void; onDates: (from: string, to: string) => void;
 }) {
+  const [hi, setHi] = useState(-1);   // the suggestion picked with the arrow keys
   const [places, setPlaces] = useState<Place[] | null>(null);
   const [folders, setFolders] = useState<{ id: number; path: string; files: number }[] | null>(null);
   const [cats, setCats] = useState<Category[]>([]);
@@ -251,36 +269,54 @@ function SearchBox({ q, setQ, people, onPerson, onExtra }: {
       cats: cats.filter((c) => name(c.label)).slice(0, 3),
     };
   }, [t, places, people, folders, cats]);
-  const any = sugg && (sugg.places.length + sugg.people.length + sugg.folders.length + sugg.cats.length) > 0;
-  const head = (s: string) => <div className="px-3 pb-1 pt-2 text-[11px] uppercase tracking-wide text-neutral-500">{s}</div>;
-  const row = (key: string, icon: React.ReactNode, label: string, hint: string, fn: () => void) => (
-    <button key={key} onClick={() => { setOpen(false); fn(); }} className="flex w-full items-center gap-2.5 rounded-lg px-3 py-1.5 text-left hover:bg-neutral-800">
-      {icon}<span className="flex-1 truncate">{label}</span><span className="text-xs text-neutral-500">{hint}</span>
-    </button>
-  );
+  // Every suggestion in order, so the arrow keys can walk through them.
+  type Item = { key: string; group: string; icon: React.ReactNode; label: string; hint: string; fn: () => void };
+  const items: Item[] = [];
+  if (sugg) {
+    sugg.people.forEach((p) => items.push({ key: `p${p.id}`, group: "People",
+      icon: p.cover_face_id ? <img src={chipUrl(p.cover_face_id)} alt="" className="h-6 w-6 rounded-full object-cover" /> : <Icon name="pin" />,
+      label: p.name, hint: `${p.photos.toLocaleString()} photos`, fn: () => onPerson(p) }));
+    sugg.places.forEach((p) => items.push({ key: `l${p.id}`, group: "Places", icon: <Icon name="pin" className="h-4 w-4 text-rose-400" />,
+      label: `${p.name}${p.country ? `, ${p.country}` : ""}`, hint: p.count.toLocaleString(), fn: () => onExtra({ place: p.id, label: p.name }) }));
+    dateSuggestions(t).forEach((d) => items.push({ key: `d${d.from}`, group: "Dates", icon: <Icon name="clock" className="h-4 w-4 text-emerald-400" />,
+      label: d.label, hint: "", fn: () => onDates(d.from, d.to) }));
+    sugg.cats.forEach((c) => items.push({ key: `c${c.tag}`, group: "Folders and things", icon: <Icon name="shapes" className="h-4 w-4 text-sky-400" />,
+      label: c.label, hint: c.count.toLocaleString(), fn: () => onExtra({ tag: c.tag, label: c.label }) }));
+    sugg.folders.forEach((f) => items.push({ key: `f${f.id}`, group: "Folders and things", icon: <Icon name="folders" className="h-4 w-4 text-amber-400" />,
+      label: f.path.split(/[\\/]/).pop() ?? f.path, hint: f.files.toLocaleString(),
+      fn: () => onExtra({ folderId: f.id, label: f.path.split(/[\\/]/).pop() ?? "Folder" }) }));
+  }
+  const any = items.length > 0;
+  useEffect(() => { setHi(-1); }, [t]);
+  const pick = (it: Item) => { setOpen(false); it.fn(); };
+  const onKey = (e: React.KeyboardEvent) => {
+    if (e.key === "Escape") setOpen(false);
+    else if ((e.key === "ArrowDown" || e.key === "ArrowUp") && any) {
+      e.preventDefault(); setOpen(true);
+      setHi((h) => (e.key === "ArrowDown" ? (h + 1) % items.length : (h <= 0 ? items.length - 1 : h - 1)));
+    } else if (e.key === "Enter") { if (open && hi >= 0 && items[hi]) pick(items[hi]); else setOpen(false); }
+  };
   return (
     <div ref={box} className="relative min-w-[14rem] max-w-xl flex-1">
       <label className="pe-search flex items-center gap-2 rounded-xl border border-neutral-700 bg-neutral-900 px-3 py-1.5 focus-within:ring-1 focus-within:ring-sky-500">
         <Icon name="search" className="h-4 w-4 text-neutral-500" />
         <input value={q} onChange={(e) => { setQ(e.target.value); setOpen(true); }} onFocus={() => setOpen(true)}
-          onKeyDown={(e) => e.key === "Escape" && setOpen(false)}
+          onKeyDown={onKey}
           placeholder="Search: beach, cake, Goa, people, file names, notes…" className="min-w-0 flex-1 bg-transparent text-sm outline-none" />
         {q && <button className="text-neutral-500 hover:text-neutral-200" title="Clear" onClick={() => setQ("")}><Icon name="x" className="h-3.5 w-3.5" /></button>}
       </label>
       {open && any && (
         <div className="absolute left-0 right-0 top-full z-50 mt-1.5 rounded-xl border border-neutral-700 bg-neutral-900 p-1.5 text-sm shadow-xl">
-          {sugg!.people.length > 0 && head("People")}
-          {sugg!.people.map((p) => row(`p${p.id}`, p.cover_face_id ? <img src={chipUrl(p.cover_face_id)} alt="" className="h-6 w-6 rounded-full object-cover" /> : <Icon name="pin" />,
-            p.name, `${p.photos.toLocaleString()} photos`, () => onPerson(p)))}
-          {sugg!.places.length > 0 && head("Places")}
-          {sugg!.places.map((p) => row(`l${p.id}`, <Icon name="pin" className="h-4 w-4 text-rose-400" />, `${p.name}${p.country ? `, ${p.country}` : ""}`,
-            p.count.toLocaleString(), () => onExtra({ place: p.id, label: p.name })))}
-          {(sugg!.folders.length > 0 || sugg!.cats.length > 0) && head("Folders and things")}
-          {sugg!.cats.map((c) => row(`c${c.tag}`, <Icon name="shapes" className="h-4 w-4 text-sky-400" />, c.label, c.count.toLocaleString(),
-            () => onExtra({ tag: c.tag, label: c.label })))}
-          {sugg!.folders.map((f) => row(`f${f.id}`, <Icon name="folders" className="h-4 w-4 text-amber-400" />, f.path.split(/[\\/]/).pop() ?? f.path,
-            f.files.toLocaleString(), () => onExtra({ folderId: f.id, label: f.path.split(/[\\/]/).pop() ?? "Folder" })))}
-          <div className="px-3 pb-1 pt-2 text-xs text-neutral-500">Press Enter or keep typing to search names, notes and what is in photos.</div>
+          {items.map((it, i) => (
+            <div key={it.key}>
+              {(i === 0 || items[i - 1].group !== it.group) && <div className="px-3 pb-1 pt-2 text-[11px] uppercase tracking-wide text-neutral-500">{it.group}</div>}
+              <button onClick={() => pick(it)} onMouseEnter={() => setHi(i)}
+                className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-1.5 text-left ${i === hi ? "bg-neutral-800" : ""}`}>
+                {it.icon}<span className="flex-1 truncate">{it.label}</span><span className="text-xs text-neutral-500">{it.hint}</span>
+              </button>
+            </div>
+          ))}
+          <div className="px-3 pb-1 pt-2 text-xs text-neutral-500">↑ ↓ to choose, Enter to pick. Keep typing to search names, notes and what is in photos.</div>
         </div>
       )}
     </div>

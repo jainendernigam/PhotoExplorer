@@ -6,6 +6,7 @@ import TopBar from "../lib/topbar";
 import { useCallback, useEffect, useState } from "react";
 import { api, DupGroup, DupKind, DupMember, DupSummary, post, previewUrl, Removal, thumbUrl } from "../api";
 import { fmtBytes, fmtTaken } from "../lib/format";
+import Empty from "../components/Empty";
 
 type Tab = DupKind | "removed";
 type Method = "archive" | "recycle" | "app";
@@ -160,7 +161,9 @@ export default function DuplicatesView({ busy, onChanged }: { busy: boolean; onC
           <RemovedList busy={busy} onUndo={undoBatch} onChanged={() => { regroup(); loadSummary(); onChanged(); }} />
         ) : (
           <div className="space-y-4">
-            {groups.length === 0 && <p className="text-neutral-500">{busy ? "Scanning…" : "Nothing here. Press “Find duplicates” after a scan."}</p>}
+            {groups.length === 0 && (busy ? <p className="text-neutral-500">Scanning…</p>
+              : <Empty compact icon="collage" title="No duplicates here"
+                  hint="Press “Find duplicates” after a scan. Copies and near-copies of a photo are then shown side by side." />)}
             {groups.map((g) => (
               <GroupCard key={g.id} g={g} disabled={busy || working} method={method}
                 onDone={(text, batch) => { setGroups((gs) => gs.filter((x) => x.id !== g.id)); setTotal((t) => t - 1); afterAction(text, batch); }}
